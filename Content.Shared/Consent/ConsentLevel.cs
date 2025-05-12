@@ -1,0 +1,19 @@
+using Robust.Shared.Serialization;
+
+namespace Content.Shared.Consent;
+
+/// <summary>
+/// Defines the different levels of consent a player can choose.
+/// </summary>
+[Serializable, NetSerializable]
+public enum ConsentLevel : sbyte
+{
+    Ask = -4,
+    HardDeny = -3,
+    Deny = -2,
+    SoftDeny = -1,
+    Neutral = 0,
+    SoftAllow = 1,
+    Allow = 2,
+    EnthusiasticAllow = 3,
+}

@@ -1,0 +1,64 @@
+# Defines initial consentable activities and preferences
+
+- type: consent
+  id: ConsentDominant
+  name: Dominance Preference
+  description: Preference regarding taking a dominant role in interactions.
+  category: Power Dynamics
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentSubmissive
+  name: Submission Preference
+  description: Preference regarding taking a submissive role in interactions.
+  category: Power Dynamics
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentDicks
+  name: Dicks
+  description: Consent regarding interactions involving dicks.
+  category: Sexual
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentVaginas
+  name: Vaginas
+  description: Consent regarding interactions involving vaginas.
+  category: Sexual
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentMasochism
+  name: Masochism
+  description: Consent regarding receiving pain for pleasure.
+  category: Physical
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentSadism
+  name: Sadism
+  description: Consent regarding inflicting pain for pleasure.
+  category: Physical
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentVore
+  name: Vore
+  description: Consent regarding being consumed or consuming others.
+  category: Extreme
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentHypnosis
+  name: Hypnosis
+  description: Consent regarding being subjected to or using hypnosis/mind control.
+  category: Mental
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentNonCon
+  name: Non-Con / Dub-Con
+  description: Consent regarding non-consensual or dubiously consensual scenarios.
+  category: Extreme
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder

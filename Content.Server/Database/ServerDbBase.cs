@@ -136,6 +136,9 @@ using Content.Server.Administration.Logs;
 using Content.Server.Administration.Managers;
 using Content.Shared._RMC14.LinkAccount;
 using Content.Shared.Administration.Logs;
+using Content.Shared.Consent;
+using Content.Shared.Consent.Components;
+using Content.Shared.Consent.Prototypes;
 using Content.Shared.Database;
 using Content.Shared.Humanoid;
 using Content.Shared.Humanoid.Markings;
@@ -175,6 +178,7 @@ namespace Content.Server.Database
                 .Include(p => p.Profiles).ThenInclude(h => h.Jobs)
                 .Include(p => p.Profiles).ThenInclude(h => h.Antags)
                 .Include(p => p.Profiles).ThenInclude(h => h.Traits)
+                .Include(p => p.Profiles).ThenInclude(h => h.ConsentPreferences) // Include ConsentPreferences
                 .Include(p => p.Profiles)
                     .ThenInclude(h => h.Loadouts)
                     .ThenInclude(l => l.Groups)
@@ -227,6 +231,7 @@ namespace Content.Server.Database
                 .Include(p => p.Jobs)
                 .Include(p => p.Antags)
                 .Include(p => p.Traits)
+                .Include(p => p.ConsentPreferences)
                 .Include(p => p.Loadouts)
                     .ThenInclude(l => l.Groups)
                     .ThenInclude(group => group.Loadouts)
@@ -316,6 +321,14 @@ namespace Content.Server.Database
             var jobs = profile.Jobs.ToDictionary(j => new ProtoId<JobPrototype>(j.JobName), j => (JobPriority) j.Priority);
             var antags = profile.Antags.Select(a => new ProtoId<AntagPrototype>(a.AntagName));
             var traits = profile.Traits.Select(t => new ProtoId<TraitPrototype>(t.TraitName));
+            var consentPrefs = new Dictionary<ProtoId<ConsentPrototype>, ConsentLevel>();
+            var prototypeManager = IoCManager.Resolve<IPrototypeManager>();
+
+            foreach (var consentEntry in profile.ConsentPreferences)
+            {
+                if (prototypeManager.TryIndex<ConsentPrototype>(consentEntry.ConsentPrototypeId, out _))
+                    consentPrefs[new ProtoId<ConsentPrototype>(consentEntry.ConsentPrototypeId)] = (ConsentLevel)consentEntry.Level;
+            }
 
             var sex = Sex.Male;
             if (Enum.TryParse<Sex>(profile.Sex, true, out var sexVal))
@@ -391,7 +404,8 @@ namespace Content.Server.Database
                 (PreferenceUnavailableMode) profile.PreferenceUnavailable,
                 antags.ToHashSet(),
                 traits.ToHashSet(),
-                loadouts
+                loadouts,
+                consentPrefs // Pass the loaded consent preferences
             );
         }
 
@@ -443,6 +457,20 @@ namespace Content.Server.Database
                 humanoid.TraitPreferences
                         .Select(t => new Trait { TraitName = t })
             );
+
+            profile.ConsentPreferences.Clear();
+            var prototypeManager = IoCManager.Resolve<IPrototypeManager>();
+            foreach (var (consentProtoId, level) in humanoid.ConsentPreferences)
+            {
+                if (prototypeManager.HasIndex<ConsentPrototype>(consentProtoId))
+                {
+                    profile.ConsentPreferences.Add(new ProfileConsentPreference
+                    {
+                        ConsentPrototypeId = consentProtoId.Id,
+                        Level = (sbyte)level
+                    });
+                }
+            }
 
             profile.Loadouts.Clear();
 

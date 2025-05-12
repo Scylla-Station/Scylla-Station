@@ -99,6 +99,8 @@ using Content.Server.PDA;
 using Content.Server.Station.Components;
 using Content.Shared.Access.Components;
 using Content.Shared.Access.Systems;
+using Content.Shared.Consent.Components;
+using Content.Shared.Consent.Prototypes;
 using Content.Shared.CCVar;
 using Content.Shared.Clothing;
 using Content.Shared.DetailExaminable;
@@ -285,6 +287,15 @@ public sealed class StationSpawningSystem : SharedStationSpawningSystem
 
             _humanoidSystem.LoadProfile(entity.Value, profile);
             _metaSystem.SetEntityName(entity.Value, profile.Name);
+
+            var consentComp = EnsureComp<ConsentPreferencesComponent>(entity.Value);
+            consentComp.Preferences.Clear();
+            foreach (var (consentId, level) in profile.ConsentPreferences)
+            {
+                if (_prototypeManager.HasIndex<ConsentPrototype>(consentId))
+                    consentComp.Preferences[consentId] = level;
+            }
+
             if (profile.FlavorText != "" && _configurationManager.GetCVar(CCVars.FlavorText))
             {
                 AddComp<DetailExaminableComponent>(entity.Value).Content = profile.FlavorText;

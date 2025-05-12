@@ -47,6 +47,8 @@ using System.Text.RegularExpressions;
 using Content.Shared.CCVar;
 using Content.Shared.Dataset;
 using Content.Shared.GameTicking;
+using Content.Shared.Consent;
+using Content.Shared.Consent.Prototypes;
 using Content.Shared.Humanoid;
 using Content.Shared.Humanoid.Prototypes;
 using Content.Shared.Preferences.Loadouts;
@@ -110,6 +112,9 @@ namespace Content.Shared.Preferences
         private Dictionary<string, RoleLoadout> _loadouts = new();
 
         [DataField]
+        private Dictionary<ProtoId<ConsentPrototype>, ConsentLevel> _consentPreferences = new();
+
+        [DataField]
         public string Name { get; set; } = "John Doe";
 
         /// <summary>
@@ -171,6 +176,11 @@ namespace Content.Shared.Preferences
         public IReadOnlySet<ProtoId<TraitPrototype>> TraitPreferences => _traitPreferences;
 
         /// <summary>
+        /// <see cref="_consentPreferences"/>
+        /// </summary>
+        public IReadOnlyDictionary<ProtoId<ConsentPrototype>, ConsentLevel> ConsentPreferences => _consentPreferences;
+
+        /// <summary>
         /// If we're unable to get one of our preferred jobs do we spawn as a fallback job or do we stay in lobby.
         /// </summary>
         [DataField]
@@ -191,8 +201,8 @@ namespace Content.Shared.Preferences
             PreferenceUnavailableMode preferenceUnavailable,
             HashSet<ProtoId<AntagPrototype>> antagPreferences,
             HashSet<ProtoId<TraitPrototype>> traitPreferences,
-            Dictionary<string, RoleLoadout> loadouts)
-
+            Dictionary<string, RoleLoadout> loadouts,
+            Dictionary<ProtoId<ConsentPrototype>, ConsentLevel> consentPreferences)
         {
             Name = name;
             FlavorText = flavortext;
@@ -208,6 +218,7 @@ namespace Content.Shared.Preferences
             _antagPreferences = antagPreferences;
             _traitPreferences = traitPreferences;
             _loadouts = loadouts;
+            _consentPreferences = consentPreferences;
 
             var hasHighPrority = false;
             foreach (var (key, value) in _jobPriorities)
@@ -240,7 +251,8 @@ namespace Content.Shared.Preferences
                 other.PreferenceUnavailable,
                 new HashSet<ProtoId<AntagPrototype>>(other.AntagPreferences),
                 new HashSet<ProtoId<TraitPrototype>>(other.TraitPreferences),
-                new Dictionary<string, RoleLoadout>(other.Loadouts))
+                new Dictionary<string, RoleLoadout>(other.Loadouts),
+                new Dictionary<ProtoId<ConsentPrototype>, ConsentLevel>(other.ConsentPreferences))
         {
         }
 
@@ -537,6 +549,7 @@ namespace Content.Shared.Preferences
             if (!_jobPriorities.SequenceEqual(other._jobPriorities)) return false;
             if (!_antagPreferences.SequenceEqual(other._antagPreferences)) return false;
             if (!_traitPreferences.SequenceEqual(other._traitPreferences)) return false;
+            if (!_consentPreferences.SequenceEqual(other._consentPreferences)) return false;
             if (!Loadouts.SequenceEqual(other.Loadouts)) return false;
             if (FlavorText != other.FlavorText) return false;
             return Appearance.MemberwiseEquals(other.Appearance);
@@ -806,6 +819,7 @@ namespace Content.Shared.Preferences
             hashCode.Add(_jobPriorities);
             hashCode.Add(_antagPreferences);
             hashCode.Add(_traitPreferences);
+            hashCode.Add(_consentPreferences);
             hashCode.Add(_loadouts);
             hashCode.Add(Name);
             hashCode.Add(FlavorText);
