@@ -1,0 +1,13 @@
+<DefaultWindow xmlns="https://spacestation14.io"
+            xmlns:cc="clr-namespace:Content.Client.UserInterface.Controls"
+            Title="{Loc 'view-consent-window-title'}"
+            MinSize="400 500"
+            SetSize="500 600">
+    <BoxContainer Orientation="Vertical" VerticalExpand="True" Margin="5">
+        <Label Name="TargetNameLabel" Align="Center" Margin="0 0 0 10" StyleClasses="LabelHeading" />
+        <cc:HighDivider />
+        <ScrollContainer VerticalExpand="True" HScrollEnabled="False">
+            <BoxContainer Name="ConsentsVBox" Orientation="Vertical" />
+        </ScrollContainer>
+    </BoxContainer>
+</DefaultWindow>

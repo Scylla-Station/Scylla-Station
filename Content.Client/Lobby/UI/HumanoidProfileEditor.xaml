@@ -166,6 +166,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                         <humanoid:MarkingPicker Name="Markings" IgnoreCategories="Hair,FacialHair" />
                     </ScrollContainer>
                 </BoxContainer>
+                <!-- Consent Preferences Tab -->
+                <BoxContainer Orientation="Vertical" Margin="10">
+                    <ScrollContainer VerticalExpand="True">
+                        <BoxContainer Name="ConsentPreferencesContainer" Orientation="Vertical" />
+                    </ScrollContainer>
+                </BoxContainer>
             </TabContainer>
         </BoxContainer>
         <!-- Right side -->

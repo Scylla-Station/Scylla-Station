@@ -1,5 +1,7 @@
 // SPDX-FileCopyrightText: 2025 GoobBot <uristmchands@proton.me>
+// SPDX-FileCopyrightText: 2025 Scylla-Bot <botscylla@gmail.com>
 // SPDX-FileCopyrightText: 2025 Steve <marlumpy@gmail.com>
+// SPDX-FileCopyrightText: 2025 marc-pelletier <113944176+marc-pelletier@users.noreply.github.com>
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -24,7 +26,7 @@ public sealed partial class FirefighterTankRefillableComponent : Component
     ///     Name of solution/>.
     /// </summary>
     [DataField]
-    public const string SolutionName = "tank";
+    public string SolutionName = "tank";
 
     /// <summary>
     ///     Reagent that will be used in backpack.
