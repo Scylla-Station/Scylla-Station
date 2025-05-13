@@ -3,8 +3,6 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-# Defines initial consentable activities and preferences
-
 - type: consent
   id: ConsentDominant
   name: Dominance Preference
@@ -17,20 +15,6 @@
   name: Submission Preference
   description: Preference regarding taking a submissive role in interactions.
   category: Power Dynamics
-  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
-
-- type: consent
-  id: ConsentDicks
-  name: Dicks
-  description: Consent regarding interactions involving dicks.
-  category: Sexual
-  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
-
-- type: consent
-  id: ConsentVaginas
-  name: Vaginas
-  description: Consent regarding interactions involving vaginas.
-  category: Sexual
   icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
 
 - type: consent
@@ -66,4 +50,18 @@
   name: Non-Con / Dub-Con
   description: Consent regarding non-consensual or dubiously consensual scenarios.
   category: Extreme
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentDicks
+  name: Dicks
+  description: Consent regarding interactions involving dicks.
+  category: Sexual
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentVaginas
+  name: Vaginas
+  description: Consent regarding interactions involving vaginas.
+  category: Sexual
   icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder

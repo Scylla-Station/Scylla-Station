@@ -322,13 +322,10 @@ namespace Content.Server.Database
             var antags = profile.Antags.Select(a => new ProtoId<AntagPrototype>(a.AntagName));
             var traits = profile.Traits.Select(t => new ProtoId<TraitPrototype>(t.TraitName));
             var consentPrefs = new Dictionary<ProtoId<ConsentPrototype>, ConsentLevel>();
-            var prototypeManager = IoCManager.Resolve<IPrototypeManager>();
 
             foreach (var consentEntry in profile.ConsentPreferences)
-            {
-                if (prototypeManager.TryIndex<ConsentPrototype>(consentEntry.ConsentPrototypeId, out _))
-                    consentPrefs[new ProtoId<ConsentPrototype>(consentEntry.ConsentPrototypeId)] = (ConsentLevel)consentEntry.Level;
-            }
+                consentPrefs[new ProtoId<ConsentPrototype>(consentEntry.ConsentPrototypeId)] = (ConsentLevel) consentEntry.Level;
+
 
             var sex = Sex.Male;
             if (Enum.TryParse<Sex>(profile.Sex, true, out var sexVal))

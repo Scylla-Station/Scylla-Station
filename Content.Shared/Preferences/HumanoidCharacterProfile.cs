@@ -529,6 +529,15 @@ namespace Content.Shared.Preferences
             };
         }
 
+        public HumanoidCharacterProfile WithConsentPreference(ProtoId<ConsentPrototype> consentId, ConsentLevel level)
+        {
+            var newConsentPreferences = new Dictionary<ProtoId<ConsentPrototype>, ConsentLevel>(_consentPreferences)
+            {
+                [consentId] = level
+            };
+            return new HumanoidCharacterProfile(this) { _consentPreferences = newConsentPreferences };
+        }
+
         public string Summary =>
             Loc.GetString(
                 "humanoid-character-profile-summary",
@@ -745,6 +754,14 @@ namespace Content.Shared.Preferences
             foreach (var value in toRemove)
             {
                 _loadouts.Remove(value);
+            }
+
+            var consentPrototypes = prototypeManager.EnumeratePrototypes<ConsentPrototype>();
+            foreach (var consentProto in consentPrototypes)
+            {
+                var protoId = new ProtoId<ConsentPrototype>(consentProto.ID);
+                if (!_consentPreferences.ContainsKey(protoId))
+                    _consentPreferences[protoId] = ConsentLevel.Ask;
             }
         }
 

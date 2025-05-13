@@ -292,7 +292,7 @@ public sealed class StationSpawningSystem : SharedStationSpawningSystem
             _metaSystem.SetEntityName(entity.Value, profile.Name);
 
             var consentComp = EnsureComp<ConsentPreferencesComponent>(entity.Value);
-            consentComp.Preferences.Clear();
+
             foreach (var (consentId, level) in profile.ConsentPreferences)
             {
                 if (_prototypeManager.HasIndex<ConsentPrototype>(consentId))
