@@ -459,17 +459,13 @@ namespace Content.Server.Database
             );
 
             profile.ConsentPreferences.Clear();
-            var prototypeManager = IoCManager.Resolve<IPrototypeManager>();
             foreach (var (consentProtoId, level) in humanoid.ConsentPreferences)
             {
-                if (prototypeManager.HasIndex<ConsentPrototype>(consentProtoId))
+                profile.ConsentPreferences.Add(new ProfileConsentPreference
                 {
-                    profile.ConsentPreferences.Add(new ProfileConsentPreference
-                    {
-                        ConsentPrototypeId = consentProtoId.Id,
-                        Level = (sbyte)level
-                    });
-                }
+                    ConsentPrototypeId = consentProtoId.Id,
+                    Level = (sbyte) level
+                });
             }
 
             profile.Loadouts.Clear();
