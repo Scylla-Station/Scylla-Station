@@ -136,10 +136,13 @@
 // SPDX-FileCopyrightText: 2024 to4no_fix <156101927+chavonadelal@users.noreply.github.com>
 // SPDX-FileCopyrightText: 2024 voidnull000 <18663194+voidnull000@users.noreply.github.com>
 // SPDX-FileCopyrightText: 2025 Aiden <28298836+Aidenkrz@users.noreply.github.com>
+// SPDX-FileCopyrightText: 2025 GoobBot <uristmchands@proton.me>
 // SPDX-FileCopyrightText: 2025 Ignaz "Ian" Kraft <ignaz.k@live.de>
+// SPDX-FileCopyrightText: 2025 J <billsmith116@gmail.com>
 // SPDX-FileCopyrightText: 2025 Pieter-Jan Briers <pieterjan.briers+git@gmail.com>
 // SPDX-FileCopyrightText: 2025 Piras314 <p1r4s@proton.me>
 // SPDX-FileCopyrightText: 2025 SX-7 <92227810+SX-7@users.noreply.github.com>
+// SPDX-FileCopyrightText: 2025 Scylla-Bot <botscylla@gmail.com>
 // SPDX-FileCopyrightText: 2025 coderabbitai[bot] <136622811+coderabbitai[bot]@users.noreply.github.com>
 // SPDX-FileCopyrightText: 2025 gluesniffler <159397573+gluesniffler@users.noreply.github.com>
 // SPDX-FileCopyrightText: 2025 metalgearsloth <31366439+metalgearsloth@users.noreply.github.com>
@@ -181,6 +184,8 @@ using Robust.Shared.ContentPack;
 using Robust.Shared.Enums;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
+using Content.Shared.Scylla.Consent; // Scylla - Consent
+using Content.Shared.Scylla.Consent.Prototypes; // Scylla - Consent
 using Direction = Robust.Shared.Maths.Direction;
 
 namespace Content.Client.Lobby.UI
@@ -579,6 +584,8 @@ namespace Content.Client.Lobby.UI
 
             RefreshFlavorText();
 
+            TabContainer.SetTabTitle(5, Loc.GetString("humanoid-profile-editor-consent-tab")); // Scylla - Consent
+
             #region Dummy
 
             SpriteRotateLeft.OnPressed += _ =>
@@ -937,6 +944,7 @@ namespace Content.Client.Lobby.UI
             {
                 PreferenceUnavailableButton.SelectId((int) Profile.PreferenceUnavailable);
             }
+            PopulateConsentPreferences(); // Scylla - Consent
         }
 
 
@@ -1884,6 +1892,183 @@ namespace Content.Client.Lobby.UI
             _exporting = false;
             ImportButton.Disabled = false;
             ExportButton.Disabled = false;
+        }
+
+        private void PopulateConsentPreferences() // Scylla - Consent
+        {
+            ConsentPreferencesContainer.DisposeAllChildren();
+
+            if (Profile == null)
+                return;
+
+            var categoryHeaderColor = Color.FromHex("#A0A0C0");
+            var cardBorderColor = Color.FromHex("#454550");
+            var nameLabelColor = Color.FromHex("#E0E0E0");
+            var descriptionLabelColor = Color.FromHex("#B0B0B0");
+
+            var prototypes = _prototypeManager.EnumeratePrototypes<ConsentPrototype>()
+                .OrderBy(p => p.Category)
+                .ThenBy(p => Loc.GetString(p.Name))
+                .ToList();
+
+            if (!prototypes.Any())
+            {
+                ConsentPreferencesContainer.AddChild(new Label { Text = Loc.GetString("humanoid-profile-editor-no-consents-available") });
+                return;
+            }
+
+            string? currentCategory = null;
+
+            foreach (var proto in prototypes)
+            {
+                if (proto.Category != currentCategory)
+                {
+                    currentCategory = proto.Category;
+                    var categoryLabel = new Label
+                    {
+                        Text = Loc.GetString(currentCategory ?? "consent-category-uncategorized"),
+                        FontColorOverride = categoryHeaderColor,
+                        StyleClasses = { StyleBase.StyleClassLabelHeading },
+                        HorizontalAlignment = HAlignment.Center,
+                        Margin = new Thickness(0, 15, 0, 8)
+                    };
+                    ConsentPreferencesContainer.AddChild(categoryLabel);
+                }
+
+                var currentProfileLevelForCard = Profile.ConsentPreferences.GetValueOrDefault(new ProtoId<ConsentPrototype>(proto.ID), ConsentLevel.Ask);
+
+                var cardPanel = new PanelContainer
+                {
+                    PanelOverride = new StyleBoxFlat
+                    {
+                        BackgroundColor = ConsentLevelHelpers.GetColorForConsentLevel(currentProfileLevelForCard),
+                        BorderColor = cardBorderColor,
+                        BorderThickness = new Thickness(1),
+                        ContentMarginTopOverride = 8,
+                        ContentMarginBottomOverride = 8,
+                        ContentMarginLeftOverride = 10,
+                        ContentMarginRightOverride = 10,
+                    },
+                    Margin = new Thickness(0, 0, 0, 8),
+                    ToolTip = Loc.GetString(proto.Description)
+                };
+
+                var cardHBox = new BoxContainer
+                {
+                    Orientation = LayoutOrientation.Horizontal,
+                    HorizontalExpand = true,
+                    VerticalAlignment = VAlignment.Center
+                };
+
+                // Icon Column
+                var icon = new TextureRect
+                {
+                    Texture = _sprite.Frame0(proto.Icon),
+                    MinSize = new Vector2(24, 24),
+                    TextureScale = new Vector2(1, 1),
+                    VerticalAlignment = VAlignment.Center,
+                    Margin = new Thickness(0, 0, 10, 0)
+                };
+
+                cardHBox.AddChild(icon);
+
+                var textVBox = new BoxContainer
+                {
+                    Orientation = LayoutOrientation.Vertical,
+                    VerticalAlignment = VAlignment.Center,
+                    HorizontalExpand = true
+                };
+
+                var nameLabel = new Label
+                {
+                    Text = Loc.GetString(proto.Name),
+                    FontColorOverride = nameLabelColor,
+                    VerticalAlignment = VAlignment.Center
+                };
+
+                var descriptionLabel = new Label
+                {
+                    Text = string.IsNullOrWhiteSpace(proto.Description) ? " " : Loc.GetString(proto.Description),
+                    FontColorOverride = descriptionLabelColor,
+                    VerticalAlignment = VAlignment.Center,
+                };
+
+                textVBox.AddChild(nameLabel);
+                textVBox.AddChild(descriptionLabel);
+                cardHBox.AddChild(textVBox);
+
+                cardHBox.AddChild(new Control { HorizontalExpand = true });
+
+                var levelCarouselHBox = new BoxContainer
+                {
+                    Orientation = LayoutOrientation.Horizontal,
+                    VerticalAlignment = VAlignment.Center,
+                    HorizontalAlignment = HAlignment.Right,
+                    HorizontalExpand = false,
+                    SeparationOverride = 4
+                };
+
+                var prevLevelButton = new Button { Text = "<", MinWidth = 30 };
+                var currentLevelLabel = new Label
+                {
+                    MinWidth = 150,
+                    Align = Label.AlignMode.Center,
+                    VerticalAlignment = VAlignment.Center,
+                    HorizontalExpand = false
+                };
+
+                var nextLevelButton = new Button { Text = ">", MinWidth = 30 };
+
+                levelCarouselHBox.AddChild(prevLevelButton);
+                levelCarouselHBox.AddChild(currentLevelLabel);
+                levelCarouselHBox.AddChild(nextLevelButton);
+
+                var allConsentLevels = Enum.GetValues<ConsentLevel>().OrderBy(x => (int)x).ToList();
+                var protoId = new ProtoId<ConsentPrototype>(proto.ID);
+
+                void UpdateCarouselState()
+                {
+                    if (Profile == null) return;
+                    var currentLevel = Profile.ConsentPreferences.GetValueOrDefault(protoId, ConsentLevel.Ask);
+                    currentLevelLabel.Text = ConsentLevelHelpers.GetConsentLevelText(currentLevel);
+
+                    if (cardPanel.PanelOverride is StyleBoxFlat flat)
+                    {
+                        flat.BackgroundColor = ConsentLevelHelpers.GetColorForConsentLevel(currentLevel);
+                    }
+                    cardPanel.InvalidateMeasure();
+                }
+
+                prevLevelButton.OnPressed += _ =>
+                {
+                    if (Profile == null) return;
+                    var currentLevel = Profile.ConsentPreferences.GetValueOrDefault(protoId, ConsentLevel.Ask);
+                    var currentIndex = allConsentLevels.IndexOf(currentLevel);
+                    currentIndex = (currentIndex - 1 + allConsentLevels.Count) % allConsentLevels.Count;
+                    var newLevel = allConsentLevels[currentIndex];
+                    Profile = Profile.WithConsentPreference(protoId, newLevel);
+                    UpdateCarouselState();
+                    SetDirty();
+                };
+
+                nextLevelButton.OnPressed += _ =>
+                {
+                    if (Profile == null) return;
+                    var currentLevel = Profile.ConsentPreferences.GetValueOrDefault(protoId, ConsentLevel.Ask);
+                    var currentIndex = allConsentLevels.IndexOf(currentLevel);
+                    currentIndex = (currentIndex + 1) % allConsentLevels.Count;
+                    var newLevel = allConsentLevels[currentIndex];
+                    Profile = Profile.WithConsentPreference(protoId, newLevel);
+                    UpdateCarouselState();
+                    SetDirty();
+                };
+
+                UpdateCarouselState();
+
+                cardHBox.AddChild(levelCarouselHBox);
+                cardPanel.AddChild(cardHBox);
+                ConsentPreferencesContainer.AddChild(cardPanel);
+            }
         }
     }
 }

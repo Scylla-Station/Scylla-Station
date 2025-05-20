@@ -178,6 +178,7 @@ namespace Content.Server.Database
         public DbSet<RoleWhitelist> RoleWhitelists { get; set; } = null!;
         public DbSet<BanTemplate> BanTemplate { get; set; } = null!;
         public DbSet<IPIntelCache> IPIntelCache { get; set; } = null!;
+        public DbSet<ProfileConsentPreference> ProfileConsentPreference { get; set; } = null!; // Scylla - Consent
 
         // RMC14
         public DbSet<RMCDiscordAccount> RMCDiscordAccounts { get; set; } = default!;
@@ -206,6 +207,13 @@ namespace Content.Server.Database
             modelBuilder.Entity<Trait>()
                 .HasIndex(p => new { HumanoidProfileId = p.ProfileId, p.TraitName })
                 .IsUnique();
+
+            // Scylla - Consent
+            modelBuilder.Entity<ProfileConsentPreference>(entity =>
+            {
+                entity.HasIndex(p => p.ProfileId);
+                entity.HasIndex(p => new { p.ProfileId, p.ConsentPrototypeId }).IsUnique();
+            });
 
             modelBuilder.Entity<ProfileRoleLoadout>()
                 .HasOne(e => e.Profile)
@@ -614,6 +622,7 @@ namespace Content.Server.Database
         public List<Job> Jobs { get; } = new();
         public List<Antag> Antags { get; } = new();
         public List<Trait> Traits { get; } = new();
+        public List<ProfileConsentPreference> ConsentPreferences { get; } = new(); // Scylla - Consent
 
         public List<ProfileRoleLoadout> Loadouts { get; } = new();
 
@@ -658,6 +667,21 @@ namespace Content.Server.Database
         public int ProfileId { get; set; }
 
         public string TraitName { get; set; } = null!;
+    }
+
+    public class ProfileConsentPreference // Scylla - Consent
+    {
+        [Key, DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        public int Id { get; set; }
+
+        public int ProfileId { get; set; }
+        public Profile Profile { get; set; } = null!;
+
+        [Required]
+        public string ConsentPrototypeId { get; set; } = null!;
+
+        [Required]
+        public sbyte Level { get; set; }
     }
 
     #region Loadouts
