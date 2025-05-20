@@ -1,4 +1,6 @@
 <DefaultWindow xmlns="https://spacestation14.io"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            x:Class="Content.Client._Scylla.UI.ViewConsentWindow"
             xmlns:cc="clr-namespace:Content.Client.UserInterface.Controls"
             Title="{Loc 'view-consent-window-title'}"
             MinSize="400 500"
