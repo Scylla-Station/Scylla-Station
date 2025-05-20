@@ -20,7 +20,6 @@ using static Robust.Client.UserInterface.Controls.BoxContainer;
 using System.Numerics;
 
 namespace Content.Client.Scylla.Consent.UI;
-
 [GenerateTypedNameReferences]
 public sealed partial class ViewConsentWindow : DefaultWindow
 {
