@@ -36,8 +36,11 @@
 // SPDX-FileCopyrightText: 2024 dffdff2423 <dffdff2423@gmail.com>
 // SPDX-FileCopyrightText: 2024 metalgearsloth <comedian_vs_clown@hotmail.com>
 // SPDX-FileCopyrightText: 2025 Aiden <28298836+Aidenkrz@users.noreply.github.com>
+// SPDX-FileCopyrightText: 2025 GoobBot <uristmchands@proton.me>
 // SPDX-FileCopyrightText: 2025 Hyper B <137433177+HyperB1@users.noreply.github.com>
 // SPDX-FileCopyrightText: 2025 Pieter-Jan Briers <pieterjan.briers+git@gmail.com>
+// SPDX-FileCopyrightText: 2025 SX_7 <sn1.test.preria.2002@gmail.com>
+// SPDX-FileCopyrightText: 2025 Scylla-Bot <botscylla@gmail.com>
 // SPDX-FileCopyrightText: 2025 metalgearsloth <31366439+metalgearsloth@users.noreply.github.com>
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -47,6 +50,8 @@ using System.Text.RegularExpressions;
 using Content.Shared.CCVar;
 using Content.Shared.Dataset;
 using Content.Shared.GameTicking;
+using Content.Shared.Scylla.Consent; // Scylla - Consent
+using Content.Shared.Scylla.Consent.Prototypes; // Scylla - Consent
 using Content.Shared.Humanoid;
 using Content.Shared.Humanoid.Prototypes;
 using Content.Shared.Preferences.Loadouts;
@@ -110,6 +115,9 @@ namespace Content.Shared.Preferences
         private Dictionary<string, RoleLoadout> _loadouts = new();
 
         [DataField]
+        private Dictionary<ProtoId<ConsentPrototype>, ConsentLevel> _consentPreferences = new(); // Scylla - Consent
+
+        [DataField]
         public string Name { get; set; } = "John Doe";
 
         /// <summary>
@@ -171,6 +179,11 @@ namespace Content.Shared.Preferences
         public IReadOnlySet<ProtoId<TraitPrototype>> TraitPreferences => _traitPreferences;
 
         /// <summary>
+        /// <see cref="_consentPreferences"/>
+        /// </summary>
+        public IReadOnlyDictionary<ProtoId<ConsentPrototype>, ConsentLevel> ConsentPreferences => _consentPreferences; // Scylla - Consent
+
+        /// <summary>
         /// If we're unable to get one of our preferred jobs do we spawn as a fallback job or do we stay in lobby.
         /// </summary>
         [DataField]
@@ -191,8 +204,8 @@ namespace Content.Shared.Preferences
             PreferenceUnavailableMode preferenceUnavailable,
             HashSet<ProtoId<AntagPrototype>> antagPreferences,
             HashSet<ProtoId<TraitPrototype>> traitPreferences,
-            Dictionary<string, RoleLoadout> loadouts)
-
+            Dictionary<string, RoleLoadout> loadouts,
+            Dictionary<ProtoId<ConsentPrototype>, ConsentLevel> consentPreferences) // Scylla - Consent
         {
             Name = name;
             FlavorText = flavortext;
@@ -208,6 +221,7 @@ namespace Content.Shared.Preferences
             _antagPreferences = antagPreferences;
             _traitPreferences = traitPreferences;
             _loadouts = loadouts;
+            _consentPreferences = consentPreferences; // Scylla - Consent
 
             var hasHighPrority = false;
             foreach (var (key, value) in _jobPriorities)
@@ -240,7 +254,8 @@ namespace Content.Shared.Preferences
                 other.PreferenceUnavailable,
                 new HashSet<ProtoId<AntagPrototype>>(other.AntagPreferences),
                 new HashSet<ProtoId<TraitPrototype>>(other.TraitPreferences),
-                new Dictionary<string, RoleLoadout>(other.Loadouts))
+                new Dictionary<string, RoleLoadout>(other.Loadouts),
+                new Dictionary<ProtoId<ConsentPrototype>, ConsentLevel>(other.ConsentPreferences)) // Scylla - Consent
         {
         }
 
@@ -514,6 +529,15 @@ namespace Content.Shared.Preferences
             };
         }
 
+        public HumanoidCharacterProfile WithConsentPreference(ProtoId<ConsentPrototype> consentId, ConsentLevel level) // Scylla - Consent
+        {
+            var newConsentPreferences = new Dictionary<ProtoId<ConsentPrototype>, ConsentLevel>(_consentPreferences)
+            {
+                [consentId] = level
+            };
+            return new HumanoidCharacterProfile(this) { _consentPreferences = newConsentPreferences };
+        }
+
         public string Summary =>
             Loc.GetString(
                 "humanoid-character-profile-summary",
@@ -537,6 +561,7 @@ namespace Content.Shared.Preferences
             if (!_jobPriorities.SequenceEqual(other._jobPriorities)) return false;
             if (!_antagPreferences.SequenceEqual(other._antagPreferences)) return false;
             if (!_traitPreferences.SequenceEqual(other._traitPreferences)) return false;
+            if (!_consentPreferences.SequenceEqual(other._consentPreferences)) return false; // Scylla - Consent
             if (!Loadouts.SequenceEqual(other.Loadouts)) return false;
             if (FlavorText != other.FlavorText) return false;
             return Appearance.MemberwiseEquals(other.Appearance);
@@ -730,6 +755,14 @@ namespace Content.Shared.Preferences
             {
                 _loadouts.Remove(value);
             }
+
+            var consentPrototypes = prototypeManager.EnumeratePrototypes<ConsentPrototype>(); // Scylla - Consent
+            foreach (var consentProto in consentPrototypes)
+            {
+                var protoId = new ProtoId<ConsentPrototype>(consentProto.ID);
+                if (!_consentPreferences.ContainsKey(protoId))
+                    _consentPreferences[protoId] = ConsentLevel.Ask;
+            }
         }
 
         /// <summary>
@@ -806,6 +839,7 @@ namespace Content.Shared.Preferences
             hashCode.Add(_jobPriorities);
             hashCode.Add(_antagPreferences);
             hashCode.Add(_traitPreferences);
+            hashCode.Add(_consentPreferences); // Scylla - Consent
             hashCode.Add(_loadouts);
             hashCode.Add(Name);
             hashCode.Add(FlavorText);
