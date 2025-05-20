@@ -138,9 +138,8 @@ using Content.Server.Administration.Logs;
 using Content.Server.Administration.Managers;
 using Content.Shared._RMC14.LinkAccount;
 using Content.Shared.Administration.Logs;
-using Content.Shared.Scylla.Consent;
-using Content.Shared.Scylla.Consent.Components;
-using Content.Shared.Scylla.Consent.Prototypes;
+using Content.Shared.Scylla.Consent; // Scylla - Consent
+using Content.Shared.Scylla.Consent.Prototypes; // Scylla - Consent
 using Content.Shared.Database;
 using Content.Shared.Humanoid;
 using Content.Shared.Humanoid.Markings;
@@ -180,7 +179,7 @@ namespace Content.Server.Database
                 .Include(p => p.Profiles).ThenInclude(h => h.Jobs)
                 .Include(p => p.Profiles).ThenInclude(h => h.Antags)
                 .Include(p => p.Profiles).ThenInclude(h => h.Traits)
-                .Include(p => p.Profiles).ThenInclude(h => h.ConsentPreferences) // Include ConsentPreferences
+                .Include(p => p.Profiles).ThenInclude(h => h.ConsentPreferences) // Scylla - Consent
                 .Include(p => p.Profiles)
                     .ThenInclude(h => h.Loadouts)
                     .ThenInclude(l => l.Groups)
@@ -233,7 +232,7 @@ namespace Content.Server.Database
                 .Include(p => p.Jobs)
                 .Include(p => p.Antags)
                 .Include(p => p.Traits)
-                .Include(p => p.ConsentPreferences)
+                .Include(p => p.ConsentPreferences) // Scylla - Consent
                 .Include(p => p.Loadouts)
                     .ThenInclude(l => l.Groups)
                     .ThenInclude(group => group.Loadouts)
@@ -323,9 +322,9 @@ namespace Content.Server.Database
             var jobs = profile.Jobs.ToDictionary(j => new ProtoId<JobPrototype>(j.JobName), j => (JobPriority) j.Priority);
             var antags = profile.Antags.Select(a => new ProtoId<AntagPrototype>(a.AntagName));
             var traits = profile.Traits.Select(t => new ProtoId<TraitPrototype>(t.TraitName));
-            var consentPrefs = new Dictionary<ProtoId<ConsentPrototype>, ConsentLevel>();
+            var consentPrefs = new Dictionary<ProtoId<ConsentPrototype>, ConsentLevel>(); // Scylla - Consent
 
-            foreach (var consentEntry in profile.ConsentPreferences)
+            foreach (var consentEntry in profile.ConsentPreferences) // Scylla - Consent
                 consentPrefs[new ProtoId<ConsentPrototype>(consentEntry.ConsentPrototypeId)] = (ConsentLevel) consentEntry.Level;
 
 
@@ -404,7 +403,7 @@ namespace Content.Server.Database
                 antags.ToHashSet(),
                 traits.ToHashSet(),
                 loadouts,
-                consentPrefs // Pass the loaded consent preferences
+                consentPrefs // Scylla - Consent
             );
         }
 
@@ -457,6 +456,7 @@ namespace Content.Server.Database
                         .Select(t => new Trait { TraitName = t })
             );
 
+            // Scylla - Consent
             profile.ConsentPreferences.Clear();
             foreach (var (consentProtoId, level) in humanoid.ConsentPreferences)
             {

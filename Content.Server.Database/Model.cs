@@ -177,7 +177,7 @@ namespace Content.Server.Database
         public DbSet<RoleWhitelist> RoleWhitelists { get; set; } = null!;
         public DbSet<BanTemplate> BanTemplate { get; set; } = null!;
         public DbSet<IPIntelCache> IPIntelCache { get; set; } = null!;
-        public DbSet<ProfileConsentPreference> ProfileConsentPreference { get; set; } = null!;
+        public DbSet<ProfileConsentPreference> ProfileConsentPreference { get; set; } = null!; // Scylla - Consent
 
         // RMC14
         public DbSet<RMCDiscordAccount> RMCDiscordAccounts { get; set; } = default!;
@@ -207,6 +207,7 @@ namespace Content.Server.Database
                 .HasIndex(p => new { HumanoidProfileId = p.ProfileId, p.TraitName })
                 .IsUnique();
 
+            // Scylla - Consent
             modelBuilder.Entity<ProfileConsentPreference>(entity =>
             {
                 entity.HasIndex(p => p.ProfileId);
@@ -620,7 +621,7 @@ namespace Content.Server.Database
         public List<Job> Jobs { get; } = new();
         public List<Antag> Antags { get; } = new();
         public List<Trait> Traits { get; } = new();
-        public List<ProfileConsentPreference> ConsentPreferences { get; } = new();
+        public List<ProfileConsentPreference> ConsentPreferences { get; } = new(); // Scylla - Consent
 
         public List<ProfileRoleLoadout> Loadouts { get; } = new();
 
@@ -667,7 +668,7 @@ namespace Content.Server.Database
         public string TraitName { get; set; } = null!;
     }
 
-    public class ProfileConsentPreference
+    public class ProfileConsentPreference // Scylla - Consent
     {
         [Key, DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
