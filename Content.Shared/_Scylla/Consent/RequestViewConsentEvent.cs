@@ -1,6 +1,6 @@
 using Robust.Shared.Serialization;
 
-namespace Content.Shared.Consent;
+namespace Content.Shared.Scylla.Consent;
 
 /// <summary>
 /// Raised from client via verb action to request the server open the View Consent UI.

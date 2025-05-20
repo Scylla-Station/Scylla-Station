@@ -3,11 +3,11 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using Content.Shared.Consent.Prototypes;
+using Content.Shared.Scylla.Consent.Prototypes;
 using Robust.Shared.GameStates;
 using Robust.Shared.Prototypes;
 
-namespace Content.Shared.Consent.Components;
+namespace Content.Shared.Scylla.Consent.Components;
 
 /// <summary>
 /// Stores a player's consent preferences.

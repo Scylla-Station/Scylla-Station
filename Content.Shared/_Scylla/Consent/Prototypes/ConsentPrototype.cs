@@ -6,7 +6,7 @@
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
 
-namespace Content.Shared.Consent.Prototypes;
+namespace Content.Shared.Scylla.Consent.Prototypes;
 
 /// <summary>
 /// Defines a type of consentable activity or preference.

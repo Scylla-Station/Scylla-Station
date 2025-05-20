@@ -3,15 +3,16 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using System.Linq;
-using Content.Shared.Consent.Components;
-using Content.Shared.Consent.Prototypes;
+using Content.Shared.Scylla.Consent.Components;
+using Content.Shared.Scylla.Consent.Prototypes;
+using Content.Shared.Examine;
 using Content.Shared.Verbs;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
+using Robust.Shared.Timing;
 using Robust.Shared.Utility;
 
-namespace Content.Shared.Consent;
+namespace Content.Shared.Scylla.Consent;
 
 /// <summary>
 /// Handles shared logic for accessing and interpreting consent preferences.
@@ -20,8 +21,8 @@ public sealed class SharedConsentSystem : EntitySystem
 {
     [Dependency] private readonly IRobustRandom _random = default!;
     [Dependency] private readonly IPrototypeManager _prototypeManager = default!;
-    [Dependency] private readonly ILogManager _logMan = default!;
-    private ISawmill _sawmill = default!;
+    [Dependency] private readonly ExamineSystemShared _examine = default!;
+    [Dependency] private readonly IGameTiming _timing = default!;
 
     [ValidatePrototypeId<ConsentPrototype>]
     ProtoId<ConsentPrototype> _domProto = "ConsentDominant";
@@ -32,26 +33,30 @@ public sealed class SharedConsentSystem : EntitySystem
     public override void Initialize()
     {
         base.Initialize();
-        _sawmill = _logMan.GetSawmill("Consents");
         SubscribeLocalEvent<ConsentPreferencesComponent, ComponentStartup>(OnConsentPreferencesStartup);
-        SubscribeLocalEvent<ConsentPreferencesComponent, GetVerbsEvent<InteractionVerb>>(AddViewConsentVerb); // Added verb subscription
+        SubscribeLocalEvent<ConsentPreferencesComponent, GetVerbsEvent<ExamineVerb>>(AddViewConsentVerb);
     }
 
-    private void AddViewConsentVerb(Entity<ConsentPreferencesComponent> ent, ref GetVerbsEvent<InteractionVerb> args)
+    private void AddViewConsentVerb(Entity<ConsentPreferencesComponent> ent, ref GetVerbsEvent<ExamineVerb> args)
     {
-        if (!args.CanAccess || !args.CanInteract || args.User == args.Target)
+        if (!args.CanAccess || !args.CanInteract)
             return;
 
         var user = args.User;
         var target = args.Target;
+        var detailsRange = _examine.IsInDetailsRange(args.User, ent);
 
-        InteractionVerb verb = new()
+        ExamineVerb verb = new()
         {
             Text = Loc.GetString("view-consent-verb-text"),
-            Icon = new SpriteSpecifier.Texture(new("/Textures/Interface/VerbIcons/observe.svg.192dpi.png")),
+            Icon = new SpriteSpecifier.Texture(new("/Textures/Interface/VerbIcons/information.svg.192dpi.png")),
+            Category = VerbCategory.Examine,
+            Disabled = !detailsRange,
+            Message = detailsRange ? null : Loc.GetString("detail-examinable-verb-disabled"),
             Act = () =>
             {
-                RaiseNetworkEvent(new RequestViewConsentEvent(GetNetEntity(user), GetNetEntity(target)));
+                if (_timing.IsFirstTimePredicted)
+                    RaiseNetworkEvent(new RequestViewConsentEvent(GetNetEntity(user), GetNetEntity(target)));
             },
         };
         args.Verbs.Add(verb);
@@ -64,21 +69,10 @@ public sealed class SharedConsentSystem : EntitySystem
     /// </summary>
     private void OnConsentPreferencesStartup(EntityUid uid, ConsentPreferencesComponent component, ComponentStartup args)
     {
-        _sawmill.Debug($"OnConsentPreferencesStartup for entity {uid}. Initial Preferences count: {component.Preferences.Count}");
-
         var prototypes = _prototypeManager.EnumeratePrototypes<ConsentPrototype>();
-        _sawmill.Debug($"Found {prototypes.Count()} ConsentPrototypes.");
 
         foreach (var consentProto in prototypes)
-        {
-            _sawmill.Debug($"Processing ConsentPrototype: {consentProto.ID}");
-            bool added = component.Preferences.TryAdd(new ProtoId<ConsentPrototype>(consentProto.ID), ConsentLevel.Neutral);
-            if (!added)
-            {
-                _sawmill.Warning($"Failed to add or already present: {consentProto.ID} for entity {uid}. Current value: {component.Preferences[new ProtoId<ConsentPrototype>(consentProto.ID)]}");
-            }
-        }
-        _sawmill.Debug($"Finished OnConsentPreferencesStartup for entity {uid}. Final Preferences count: {component.Preferences.Count}");
+            component.Preferences.TryAdd(new ProtoId<ConsentPrototype>(consentProto.ID), ConsentLevel.Neutral);
     }
 
     /// <summary>

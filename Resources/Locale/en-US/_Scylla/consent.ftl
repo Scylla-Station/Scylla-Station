@@ -12,3 +12,5 @@ consent-category-uncategorized = Uncategorized
 humanoid-profile-editor-tab = Consent
 
 view-consent-verb-text = View Consents
+view-consent-window-target-name = Consents for: { $target }
+view-consent-window-title = Consents

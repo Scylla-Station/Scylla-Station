@@ -5,7 +5,7 @@
 
 using Robust.Shared.Serialization;
 
-namespace Content.Shared.Consent;
+namespace Content.Shared.Scylla.Consent;
 
 /// <summary>
 /// Defines the different levels of consent a player can choose.

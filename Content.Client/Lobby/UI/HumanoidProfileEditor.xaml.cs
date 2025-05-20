@@ -181,8 +181,8 @@ using Robust.Shared.ContentPack;
 using Robust.Shared.Enums;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
-using Content.Shared.Consent;
-using Content.Shared.Consent.Prototypes;
+using Content.Shared.Scylla.Consent;
+using Content.Shared.Scylla.Consent.Prototypes;
 using Direction = Robust.Shared.Maths.Direction;
 
 namespace Content.Client.Lobby.UI

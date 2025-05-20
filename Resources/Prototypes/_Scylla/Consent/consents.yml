@@ -35,6 +35,13 @@
   id: ConsentVore
   name: Vore
   description: Consent regarding being consumed or consuming others.
+  category: Physical
+  icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
+
+- type: consent
+  id: ConsentDigestion
+  name: Digestion
+  description: Consent regarding being digested, or digesting others. This will result in round removal.
   category: Extreme
   icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
 
@@ -47,8 +54,8 @@
 
 - type: consent
   id: ConsentNonCon
-  name: Non-Con / Dub-Con
-  description: Consent regarding non-consensual or dubiously consensual scenarios.
+  name: Non-Con
+  description: Consent regarding non-consensual scenarios.
   category: Extreme
   icon: Interface/VerbIcons/settings.svg.192dpi.png # Placeholder
 
