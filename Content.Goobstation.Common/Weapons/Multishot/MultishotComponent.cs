@@ -67,5 +67,5 @@ public sealed partial class MultishotComponent : Component
     public float StaminaDamage;
 
     [DataField]
-    public string ExamineMessage = "multishot-component-examine";
+    public static string ExamineMessage = "multishot-component-examine";
 }
