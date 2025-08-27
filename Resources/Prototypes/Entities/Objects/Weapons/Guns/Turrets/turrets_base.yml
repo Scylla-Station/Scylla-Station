@@ -97,6 +97,9 @@
   - type: ProjectileBatteryAmmoProvider
     proto: Cartridge6.35x40mmCaseless
     fireCost: 25
+  - type: Battery
+    maxCharge: 2000
+    startingCharge: 2000
   - type: BatterySelfRecharger
     autoRecharge: true
     autoRechargeRate: 15
