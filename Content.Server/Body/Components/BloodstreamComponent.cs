@@ -142,6 +142,13 @@ namespace Content.Server.Body.Components
         [DataField]
         public ProtoId<ReagentPrototype> BloodReagent = "Blood";
 
+        /// <summary>
+        ///     The original blood reagent before any modifications (for restoration purposes).
+        ///     Used by effects like ChangeBloodReagent to restore the original blood type.
+        /// </summary>
+        [DataField]
+        public ProtoId<ReagentPrototype>? OriginalBloodReagent;
+
         /// <summary>Name/Key that <see cref="BloodSolution"/> is indexed by.</summary>
         [DataField]
         public string BloodSolutionName = DefaultBloodSolutionName;

@@ -214,6 +214,8 @@
   tier: 3
   cost: 15000
   recipeUnlocks:
+  - SmallBluespaceAirTank #Frpntier
+  - BluespaceAirTank #Frontier
   - ClothingBackpackHolding
   - ClothingBackpackSatchelHolding
   - ClothingBackpackDuffelHolding

@@ -130,6 +130,14 @@
     - Security
     - Service
     - Theatre
+    - Nanotrasen
+    - NanotrasenOperative
+    - Arcadia
+    - Cartel
+    - CartelLieutenant
+    - NuclearOperative
+    - SyndicateAgent
+    - CentralCommand
   - type: DeviceList
     isAllowList: true
   - type: DeviceNetwork

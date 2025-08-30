@@ -1,6 +1,8 @@
 using Content.Server.Access.Systems;
 using Content.Server.Popups;
 using Content.Server.Radio.EntitySystems;
+using Content.Server.Shuttles.Save;
+using Content.Server.Shuttles.Systems;
 using Content.Server._NF.Bank;
 using Content.Server._NF.Shipyard.Components;
 using Content.Server._NF.ShuttleRecords;
@@ -13,19 +15,26 @@ using Content.Shared._NF.Shipyard.Components;
 using Content.Shared.Access.Systems;
 using Content.Shared.Access.Components;
 using Content.Shared.Ghost;
+using Content.Shared.Mind.Components;
 using Robust.Server.GameObjects;
 using Robust.Shared.Containers;
 using Robust.Shared.Prototypes;
+using Robust.Shared.Utility;
+using Robust.Shared.IoC;
+using Robust.Shared.ContentPack;
+using Content.Server.Maps;
+using Content.Server.Mind;
+using Content.Shared.Mind;
+using Robust.Shared.EntitySerialization.Systems;
+using Robust.Shared.Map;
 using Content.Shared.Radio;
 using System.Linq;
 using Content.Server.Administration.Logs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Mobs.Systems;
-using Content.Server.Maps;
 using Content.Shared.StationRecords;
 using Content.Server.Chat.Systems;
 using Content.Server.Chat.Managers;
-using Content.Server.Mind;
 using Content.Server.Preferences.Managers;
 using Content.Server.StationRecords;
 using Content.Server.StationRecords.Systems;
@@ -35,6 +44,8 @@ using Content.Server.Shuttles.Components;
 using Content.Server._NF.Station.Components;
 using System.Text.RegularExpressions;
 using Content.Shared.UserInterface;
+using System;
+using System.Threading.Tasks;
 using Robust.Shared.Audio.Systems;
 using Content.Shared.Access;
 using Content.Shared._NF.Bank.BUI;
@@ -64,49 +75,14 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     [Dependency] private readonly IChatManager _chatManager = default!;
     [Dependency] private readonly MindSystem _mind = default!;
     [Dependency] private readonly ShuttleRecordsSystem _shuttleRecordsSystem = default!;
+    [Dependency] private readonly IMapManager _mapManager = default!;
 
     private static readonly Regex DeedRegex = new(@"\s*\([^()]*\)");
 
-    public void InitializeConsole()
+    private void InitializeConsole()
     {
-
-    }
-
-    private void OnLoadMessage(EntityUid shipyardConsoleUid, ShipyardConsoleComponent component, ShipyardConsoleLoadMessage args)
-    {
-        if (args.Actor is not { Valid: true } player)
-            return;
-
-        if (component.TargetIdSlot.ContainerSlot?.ContainedEntity is not { Valid: true } targetId)
-        {
-            ConsolePopup(player, Loc.GetString("shipyard-console-no-idcard"));
-            PlayDenySound(player, shipyardConsoleUid, component);
-            return;
-        }
-
-        if (!HasComp<IdCardComponent>(targetId))
-        {
-            ConsolePopup(player, Loc.GetString("shipyard-console-invalid-idcard"));
-            PlayDenySound(player, shipyardConsoleUid, component);
-            return;
-        }
-
-        // Check if ID card already has a deed
-        if (HasComp<ShuttleDeedComponent>(targetId))
-        {
-            ConsolePopup(player, "ID card already has a ship deed!");
-            PlayDenySound(player, shipyardConsoleUid, component);
-            return;
-        }
-
-        // Get player session for the loading
-        if (!_player.TryGetSessionByEntity(player, out var playerSession))
-        {
-            return;
-        }
-
-        // Call the ship loading method directly with the specific console and ID card
-        LoadShipOnConsole(args.YamlData, playerSession, shipyardConsoleUid, targetId);
+        // Console initialization logic would go here
+        // This method was called during OnShipyardStartup
     }
 
     private void OnPurchaseMessage(EntityUid shipyardConsoleUid, ShipyardConsoleComponent component, ShipyardConsolePurchaseMessage args)
@@ -405,6 +381,82 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
         ConsolePopup(player, $"Ship {deed.ShuttleName} has been saved!");
         PlayConfirmSound(player, uid, component);
+    }
+
+    public void OnLoadMessage(EntityUid uid, ShipyardConsoleComponent component, ShipyardConsoleLoadMessage args)
+    {
+        if (args.Actor is not { Valid: true } player)
+            return;
+
+        if (component.TargetIdSlot.ContainerSlot?.ContainedEntity is not { Valid: true } targetId)
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-no-idcard"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (!TryComp<IdCardComponent>(targetId, out var idCard))
+        {
+            ConsolePopup(player, "Invalid ID card");
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        // Check if the ID card already has a deed
+        if (HasComp<ShuttleDeedComponent>(targetId))
+        {
+            ConsolePopup(player, "ID card already has a ship deed");
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        // Get player session for loading
+        if (!TryComp<MindContainerComponent>(player, out var mindContainerComp) || !mindContainerComp.HasMind)
+        {
+            ConsolePopup(player, "Unable to load ship - player mind not found");
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (!TryComp<Content.Shared.Mind.MindComponent>(mindContainerComp.Mind.Value, out var mindComp) || mindComp.UserId == null)
+        {
+            ConsolePopup(player, "Unable to load ship - player mind user not found");
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        var playerSession = _player.GetSessionById(mindComp.UserId.Value);
+        if (playerSession == null)
+        {
+            ConsolePopup(player, "Unable to load ship - player session not found");
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        // Load directly from YAML data using MapLoaderSystem without temporary files
+        _taskManager.RunOnMainThread(() =>
+        {
+            try
+            {
+                if (!TryLoadShipFromYaml(targetId, args.YamlData, out var shuttleUid))
+                {
+                    _sawmill.Error($"Failed to load ship from YAML data for player {playerSession.UserId}");
+                    ConsolePopup(player, "Failed to load ship from YAML data");
+                    PlayDenySound(player, uid, component);
+                    return;
+                }
+
+                _sawmill.Info($"Ship loaded successfully for player {playerSession.UserId} - grid: {shuttleUid}");
+                ConsolePopup(player, "Ship loaded successfully!");
+                PlayConfirmSound(player, uid, component);
+            }
+            catch (Exception ex)
+            {
+                _sawmill.Error($"Failed to load ship from YAML data for player {playerSession.UserId}: {ex}");
+                ConsolePopup(player, "Failed to load ship - internal error");
+                PlayDenySound(player, uid, component);
+            }
+        });
     }
 
     public void OnSellMessage(EntityUid uid, ShipyardConsoleComponent component, ShipyardConsoleSellMessage args)

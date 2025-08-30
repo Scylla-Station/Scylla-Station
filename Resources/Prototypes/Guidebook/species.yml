@@ -18,6 +18,8 @@
     - Felinid # DeltaV
     - Oni # DeltaV
     - Feroxi # Flooftier
+    - Resomi
+    - Avali
 
 - type: guideEntry
   id: Arachnid
@@ -64,3 +66,15 @@
   id: IPC
   name: species-name-ipc
   text: "/ServerInfo/Guidebook/Mobs/IPCs.xml"
+  
+- type: guideEntry
+  id: Resomi
+  name: species-name-resomi
+  text: "/ServerInfo/Guidebook/Mobs/Resomi.xml"
+
+- type: guideEntry
+  id: Avali
+  name: species-name-avali
+  text: "/ServerInfo/Guidebook/Mobs/Avali.xml"
+
+

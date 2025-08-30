@@ -38,3 +38,8 @@
   # Armory
   - NFBlueprintPortableRecharger
   - BlueprintClothingOuterHardsuitScaf
+
+- type: latheRecipePack
+  id: NFBlueprintsService
+  recipes:
+  - ImpCoffeeMachineCircuitboard #imp

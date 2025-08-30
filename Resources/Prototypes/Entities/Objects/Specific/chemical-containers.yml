@@ -85,6 +85,13 @@
     - type: DnaSubstanceTrace
     - type: TrashOnSolutionEmpty # Frontier
       solution: beaker # Frontier
+    - type: Openable
+      sound:
+        collection: bottleOpenSounds
+      closeable: true
+      opened: true
+      closeSound:
+        collection: bottleCloseSounds
 
 - type: entity
   parent: Jug

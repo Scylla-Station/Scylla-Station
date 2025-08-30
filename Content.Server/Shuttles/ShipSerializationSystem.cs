@@ -41,6 +41,7 @@ using Content.Shared.Chemistry.Components.SolutionManager;
 using Content.Shared.Paper;
 using Content.Shared.Stacks;
 using Robust.Shared.Serialization.Markdown;
+using Content.Shared.VendingMachines;
 
 namespace Content.Server.Shuttles.Save
 {
@@ -89,24 +90,43 @@ namespace Content.Server.Shuttles.Save
                 throw new ArgumentException($"Grid with ID {gridId} not found.");
             }
 
-            var shipGridData = new ShipGridData
+            // Validate grid isn't being deleted
+            if (!_entityManager.EntityExists(gridId) || _entityManager.IsQueuedForDeletion(gridId))
             {
-                Metadata = new ShipMetadata
+                throw new ArgumentException($"Grid with ID {gridId} is being deleted or doesn't exist.");
+            }
+
+            // Get grid transform to normalize rotation during save
+            var gridTransform = _entityManager.GetComponent<TransformComponent>(gridId);
+            var originalGridRotation = gridTransform.LocalRotation;
+
+            try
+            {
+                // Temporarily set grid rotation to 0° for serialization
+                if (originalGridRotation != Angle.Zero)
                 {
-                    OriginalGridId = gridId.ToString(),
-                    PlayerId = playerId.ToString(),
-                    ShipName = shipName,
-                    Timestamp = DateTime.UtcNow
+                    _sawmill.Info($"Normalizing grid rotation from {originalGridRotation.Degrees:F2}° to 0° for save");
+                    _transformSystem.SetLocalRotation(gridId, Angle.Zero, gridTransform);
                 }
-            };
 
-            var gridData = new GridData
-            {
-                GridId = grid.Owner.ToString()
-            };
+                var shipGridData = new ShipGridData
+                {
+                    Metadata = new ShipMetadata
+                    {
+                        OriginalGridId = gridId.ToString(),
+                        PlayerId = playerId.ToString(),
+                        ShipName = shipName,
+                        Timestamp = DateTime.UtcNow
+                    }
+                };
 
-            // Proper tile serialization
-            var tiles = _map.GetAllTiles(gridId, grid);
+                var gridData = new GridData
+                {
+                    GridId = grid.Owner.ToString()
+                };
+
+                // Proper tile serialization
+                var tiles = _map.GetAllTiles(gridId, grid);
             foreach (var tile in tiles)
             {
                 var tileDef = _tileDefManager[tile.Tile.TypeId];
@@ -152,18 +172,32 @@ namespace Content.Server.Shuttles.Save
             var serializedEntities = new HashSet<EntityUid>();
 
             // Use grid's child enumerator instead of global entity query for better performance
-            var gridTransform = _entityManager.GetComponent<TransformComponent>(gridId);
             var childEnumerator = gridTransform.ChildEnumerator;
 
             while (childEnumerator.MoveNext(out var childUid))
             {
+                // Validate entity exists and isn't deleted
+                if (!_entityManager.EntityExists(childUid) || _entityManager.IsQueuedForDeletion(childUid))
+                    continue;
+
                 if (!_entityManager.TryGetComponent<TransformComponent>(childUid, out var childTransform))
                     continue;
 
                 var meta = _entityManager.GetComponentOrNull<MetaDataComponent>(childUid);
                 var proto = meta?.EntityPrototype?.ID ?? string.Empty;
 
-                // Serialize all entities, including contained ones
+                // Skip entities with empty or invalid prototypes
+                if (string.IsNullOrEmpty(proto))
+                    continue;
+
+                // Serialize all entities with normalized grid rotation (0°)
+                // Skip vending machines to avoid lag (delete them during save)
+                if (_entityManager.HasComponent<VendingMachineComponent>(childUid))
+                {
+                    _sawmill.Info($"Skipping vending machine {proto} during serialization to avoid lag");
+                    continue; // Skip vending machines entirely (effectively deletes them from save)
+                }
+
                 var entityData = SerializeEntity(childUid, childTransform, proto, gridId);
                 if (entityData != null)
                 {
@@ -191,12 +225,27 @@ namespace Content.Server.Shuttles.Save
                 }
             }
 
-            _sawmill.Info($"Ship serialized successfully");
+                _sawmill.Info($"Ship serialized successfully");
 
-            return shipGridData;
-        }
-
-        public string SerializeShipGridDataToYaml(ShipGridData data)
+                return shipGridData;
+            }
+            finally
+            {
+                // Always restore original grid rotation, even if serialization fails
+                if (originalGridRotation != Angle.Zero)
+                {
+                    try
+                    {
+                        _transformSystem.SetLocalRotation(gridId, originalGridRotation, gridTransform);
+                        _sawmill.Info($"Restored grid rotation to {originalGridRotation.Degrees:F2}°");
+                    }
+                    catch (Exception ex)
+                    {
+                        _sawmill.Error($"Failed to restore grid rotation: {ex.Message}");
+                    }
+                }
+            }
+        }        public string SerializeShipGridDataToYaml(ShipGridData data)
         {
             return _serializer.Serialize(data);
         }
@@ -227,7 +276,7 @@ namespace Content.Server.Shuttles.Save
             return data;
         }
 
-        public EntityUid ReconstructShipOnMap(ShipGridData shipGridData, MapId targetMap, Vector2 offset)
+        public EntityUid ReconstructShipOnMap(ShipGridData shipGridData, MapId targetMap, System.Numerics.Vector2 offset)
         {
             _sawmill.Info($"Reconstructing ship: {shipGridData.Grids.Count} grids, {shipGridData.Grids[0].Entities.Count} entities");
             if (shipGridData.Grids.Count == 0)
@@ -822,7 +871,9 @@ namespace Content.Server.Shuttles.Save
                 "ActorComponent", "DamageableComponent", "ThermalRegulatorComponent", "FlammableComponent",
                 "DamageTriggerComponent", "AtmosDeviceComponent", "NodeContainerComponent",
                 "DeviceNetworkComponent", "StatusEffectsComponent", "BloodstreamComponent",
-                "FixtureComponent", "InventoryComponent", "RadioComponent", "InteractionOutlineComponent"
+                "FixtureComponent", "InventoryComponent", "RadioComponent", "InteractionOutlineComponent",
+                "SolutionScannerComponent", "AirlockComponent", "WiresComponent",
+                "VendingMachineComponent" // Safety net for unmapped vending machines
             };
 
             return problematicTypes.Contains(typeName);
@@ -1219,6 +1270,21 @@ namespace Content.Server.Shuttles.Save
         {
             try
             {
+                // Validate entity still exists and isn't being deleted
+                if (!_entityManager.EntityExists(uid) || _entityManager.IsQueuedForDeletion(uid))
+                {
+                    _sawmill.Warning($"Attempted to serialize deleted/invalid entity {uid}");
+                    return null;
+                }
+
+                // Additional validation for entity state
+                var meta = _entityManager.GetComponentOrNull<MetaDataComponent>(uid);
+                if (meta == null || meta.EntityLifeStage >= EntityLifeStage.Terminating)
+                {
+                    _sawmill.Warning($"Attempted to serialize terminating entity {uid}");
+                    return null;
+                }
+
                 // Get container relationship information
                 var (parentContainer, containerSlot) = GetContainerInfo(uid);
                 var isContained = parentContainer != null;
@@ -1227,12 +1293,16 @@ namespace Content.Server.Shuttles.Save
                 // Serialize component states
                 var components = SerializeEntityComponents(uid);
 
+                // Use entity's current position and rotation (grid is already normalized to 0°)
+                var position = transform.LocalPosition;
+                var rotation = transform.LocalRotation;
+
                 var entityData = new EntityData
                 {
                     EntityId = uid.ToString(),
                     Prototype = prototype,
-                    Position = new Vector2((float)Math.Round(transform.LocalPosition.X, 3), (float)Math.Round(transform.LocalPosition.Y, 3)),
-                    Rotation = (float)Math.Round(transform.LocalRotation.Theta, 3),
+                    Position = new Vector2((float)Math.Round(position.X, 3), (float)Math.Round(position.Y, 3)),
+                    Rotation = (float)Math.Round(rotation.Theta, 3),
                     Components = components,
                     ParentContainerEntity = parentContainer,
                     ContainerSlot = containerSlot,
@@ -1268,6 +1338,10 @@ namespace Content.Server.Shuttles.Save
             {
                 var containerUid = containersToCheck.Dequeue();
 
+                // Validate container still exists
+                if (!_entityManager.EntityExists(containerUid) || _entityManager.IsQueuedForDeletion(containerUid))
+                    continue;
+
                 if (!_entityManager.TryGetComponent<ContainerManagerComponent>(containerUid, out var containerManager))
                     continue;
 
@@ -1278,11 +1352,26 @@ namespace Content.Server.Shuttles.Save
                         if (alreadySerialized.Contains(containedEntity))
                             continue;
 
+                        // Validate contained entity exists
+                        if (!_entityManager.EntityExists(containedEntity) || _entityManager.IsQueuedForDeletion(containedEntity))
+                            continue;
+
                         try
                         {
                             var transform = _entityManager.GetComponent<TransformComponent>(containedEntity);
                             var meta = _entityManager.GetComponentOrNull<MetaDataComponent>(containedEntity);
                             var proto = meta?.EntityPrototype?.ID ?? string.Empty;
+
+                            // Skip entities with invalid prototypes
+                            if (string.IsNullOrEmpty(proto))
+                                continue;
+
+                            // Skip vending machines in containers to avoid lag
+                            if (_entityManager.HasComponent<VendingMachineComponent>(containedEntity))
+                            {
+                                _sawmill.Info($"Skipping contained vending machine {proto} during serialization to avoid lag");
+                                continue; // Skip contained vending machines
+                            }
 
                             var entityData = SerializeEntity(containedEntity, transform, proto, gridId);
                             if (entityData != null)
@@ -1437,7 +1526,7 @@ namespace Content.Server.Shuttles.Save
             return result;
         }
 
-        private Vector2 FindNearbyPosition(EntityUid gridEntity, Vector2 originalPosition)
+        private System.Numerics.Vector2 FindNearbyPosition(EntityUid gridEntity, System.Numerics.Vector2 originalPosition)
         {
             // Try to find a nearby unoccupied position
             var searchPositions = new[]
