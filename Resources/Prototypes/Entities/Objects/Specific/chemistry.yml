@@ -266,6 +266,9 @@
     solutions:
       beaker:
         maxVol: 1000
+  - type: SolutionTransfer
+    maxTransferAmount: 1000
+    minTransferAmount: 5
 
 - type: entity
   name: dropper
@@ -489,12 +492,15 @@
   - type: Injector
     delay: 2.5
     injectOnly: false
+    maxTransferAmount: 100
+    minTransferAmount: 5
   - type: SolutionContainerVisuals
     maxFillLevels: 2
     fillBaseName: syringe
   - type: Tag
     tags:
     - Syringe
+
 
 - type: entity
   id: SyringeCryostasis

@@ -62,3 +62,21 @@
   components:
   - type: PriorityDock
     tag: MercDock
+
+- type: entity
+  parent: HighSecDoor
+  id: HighSecDoorNT
+  suffix: NT
+  components:
+  - type: AccessReader
+    containerAccessProvider: null
+    access: [[NanotrasenGunny]]
+
+- type: entity
+  parent: AirlockCommand
+  id: NTAirlock
+  suffix: NT
+  components:
+  - type: AccessReader
+    containerAccessProvider: null
+    access: [[Nanotrasen]]

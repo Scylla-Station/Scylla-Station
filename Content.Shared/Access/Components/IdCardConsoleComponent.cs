@@ -77,6 +77,11 @@ public sealed partial class IdCardConsoleComponent : Component
         "StationCaptain",
         "Service",
         "Theatre",
+        "Nanotrasen",
+        "NanotrasenOperative",
+        "Arcadia",
+        "Cartel",
+        "CartelLieutenant",
     };
 
     [Serializable, NetSerializable]

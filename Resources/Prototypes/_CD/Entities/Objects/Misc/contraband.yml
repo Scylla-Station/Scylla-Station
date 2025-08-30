@@ -236,3 +236,42 @@
         reagents:
         - ReagentId: Grit
           Quantity: 30
+
+- type: entity
+  parent: BaseWrappedPacket
+  id: WrappedWidowPackage
+  name: sealed narcotic packet
+  description: Worth a fortune, bears a bleeding infinity sigil and contains an inky black substance.
+  suffix: Widow
+  components:
+  - type: StaticPrice
+    price: 250000 # Ultimate tier
+  - type: Sprite
+    sprite: _CD/Objects/Misc/Contraband/drug_packets.rsi
+    state: brown_icon
+    color: "#8A7A8A" # Subtle dark purple tint
+  - type: Butcherable
+    butcheringType: Knife
+    spawned:
+    - id: OpenedWidowPacket
+      amount: 1
+    butcherDelay: 0.5
+
+- type: entity
+  parent: BaseOpenedPacket
+  id: OpenedWidowPacket
+  name: opened narcotic packet
+  description: An inky black substance seeps from this torn packet. The infinity sigil still bleeds faintly.
+  suffix: Widow
+  components:
+  - type: Sprite
+    sprite: _CD/Objects/Misc/Contraband/drug_packets.rsi
+    state: brown_icon
+    color: "#7A6A7A" # Subtle dark purple + damage tint combined
+  - type: SolutionContainerManager
+    solutions:
+      drink:
+        maxVol: 30
+        reagents:
+        - ReagentId: Widow
+          Quantity: 30

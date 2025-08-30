@@ -49,6 +49,8 @@
   - HandHeldMassScanner
   - ClothingMaskWeldingGas
   - SignallerAdvanced
+  - BluespaceAirTank
+  - SmallBluespaceAirTank  
 
 - type: latheRecipePack
   id: SalvageSecurityBoards

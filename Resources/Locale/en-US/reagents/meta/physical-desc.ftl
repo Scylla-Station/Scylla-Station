@@ -103,3 +103,4 @@ reagent-physical-desc-earthy = earthy
 reagent-physical-desc-fizzy-sharp-citrussy = fizzy, sharp, and citrussy
 reagent-physical-desc-smooth = smooth
 reagent-physical-desc-cold-crunchy-sticky = cold, crunchy, and sticky
+reagent-physical-desc-dark = dark

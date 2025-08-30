@@ -52,6 +52,9 @@
           enum.OpenableVisuals.Layer:
             True: { visible: false }
             False: { visible: true }
+    - type: SolutionTransfer
+      maxTransferAmount: 400
+      minTransferAmount: 5
 
 - type: entity
   name: bluespace jug
@@ -93,6 +96,15 @@
       price: 30 # Consistent with BaseBeakerMetallic
     - type: Destructible # Hacky - takes damage, but shouldn't be destructible
       thresholds: []
+    - type: SolutionTransfer
+      maxTransferAmount: 1000
+      minTransferAmount: 5
+    - type: Openable
+      sound:
+        collection: bottleOpenSounds
+      closeable: true
+      closeSound:
+        collection: bottleCloseSounds
 
 # Frontier: an unspillable jug for welding fuel.
 - type: entity

@@ -17,3 +17,19 @@
 - type: accessLevel
   id: CartelLieutenant
   name: id-card-access-level-cartel-lieutenant
+
+- type: accessLevel
+  id: NanotrasenGunny
+  name: id-card-access-level-nanotrasen-Gunny
+
+- type: accessLevel
+  id: NanotrasenLieutenant
+  name: id-card-access-level-nanotrasen-lieutenant
+
+- type: accessLevel
+  id: NanotrasenSeniorOfficer
+  name: id-card-access-level-nanotrasen-senior-officer
+
+- type: accessLevel
+  id: NanotrasenAdmiral
+  name: id-card-access-level-nanotrasen-admiral

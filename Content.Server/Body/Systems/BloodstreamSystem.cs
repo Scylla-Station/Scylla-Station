@@ -1,3 +1,4 @@
+using System.Linq;
 using Content.Server.Body.Components;
 using Content.Server.EntityEffects.Effects;
 using Content.Server.Fluids.EntitySystems;
@@ -40,6 +41,12 @@ public sealed class BloodstreamSystem : EntitySystem
     [Dependency] private readonly SharedStutteringSystem _stutteringSystem = default!;
     [Dependency] private readonly AlertsSystem _alertsSystem = default!;
 
+    /// <summary>
+    /// Cache of reagent IDs that have ChangeBloodReagent effects.
+    /// Built at startup for performance optimization.
+    /// </summary>
+    private readonly HashSet<string> _bloodAffectingReagents = new();
+
     public override void Initialize()
     {
         base.Initialize();
@@ -48,6 +55,9 @@ public sealed class BloodstreamSystem : EntitySystem
         SubscribeLocalEvent<BloodstreamComponent, MapInitEvent>(OnMapInit);
         SubscribeLocalEvent<BloodstreamComponent, EntityUnpausedEvent>(OnUnpaused);
         SubscribeLocalEvent<BloodstreamComponent, DamageChangedEvent>(OnDamageChanged);
+
+        // Build cache of blood-affecting reagents for performance
+        BuildBloodAffectingReagentsCache();
         SubscribeLocalEvent<BloodstreamComponent, HealthBeingExaminedEvent>(OnHealthBeingExamined);
         SubscribeLocalEvent<BloodstreamComponent, BeingGibbedEvent>(OnBeingGibbed);
         SubscribeLocalEvent<BloodstreamComponent, ApplyMetabolicMultiplierEvent>(OnApplyMetabolicMultiplier);
@@ -171,7 +181,73 @@ public sealed class BloodstreamSystem : EntitySystem
                 // Reset the drunk and stutter time to zero
                 bloodstream.StatusTime = TimeSpan.Zero;
             }
+            
+            // Generic blood restoration system - restore original blood when no blood-changing effects remain
+            if (bloodstream.OriginalBloodReagent != null && bloodstream.BloodReagent != bloodstream.OriginalBloodReagent)
+            {
+                // Check if any blood-changing reagents are still present
+                if (ShouldRestoreBlood(uid, bloodstream))
+                {
+                    ChangeBloodReagent(uid, bloodstream.OriginalBloodReagent.Value, bloodstream);
+                    bloodstream.OriginalBloodReagent = null;
+                }
+            }
         }
+    }
+
+    /// <summary>
+    /// Builds a cache of reagent IDs that have ChangeBloodReagent effects.
+    /// This is called at startup for performance optimization.
+    /// </summary>
+    private void BuildBloodAffectingReagentsCache()
+    {
+        _bloodAffectingReagents.Clear();
+        
+        foreach (var reagentProto in _prototypeManager.EnumeratePrototypes<ReagentPrototype>())
+        {
+            // Check all metabolism effects for ChangeBloodReagent
+            foreach (var metabolism in reagentProto.Metabolisms?.Values ?? [])
+            {
+                if (metabolism.Effects?.Any(effect => effect is ChangeBloodReagent) == true)
+                {
+                    _bloodAffectingReagents.Add(reagentProto.ID);
+                    break; // Found one, no need to check other metabolisms
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Determines if blood should be restored to its original reagent.
+    /// Dynamically checks if any blood-affecting reagents are present in the bloodstream.
+    /// This eliminates race conditions and manual tracking requirements.
+    /// </summary>
+    private bool ShouldRestoreBlood(EntityUid uid, BloodstreamComponent bloodstream)
+    {
+        // Get the entity's chemical solution
+        if (!_solutionContainerSystem.ResolveSolution(uid, bloodstream.ChemicalSolutionName, 
+            ref bloodstream.ChemicalSolution, out var chemSolution))
+            return true; // No chemicals = safe to restore
+
+        // Check if any blood-affecting reagents are present in meaningful quantities
+        foreach (var (reagentId, quantity) in chemSolution.Contents)
+        {
+            if (quantity > FixedPoint2.Zero && _bloodAffectingReagents.Contains(reagentId.Prototype))
+                return false; // Found active blood-changing reagent
+        }
+        
+        return true; // No blood-affecting reagents found
+    }
+
+    /// <summary>
+    /// Legacy method for compatibility. No longer needed with dynamic blood restoration.
+    /// </summary>
+    [Obsolete("Use dynamic blood restoration instead")]
+    public void DecrementBloodModificationTracker(EntityUid uid)
+    {
+        // Legacy compatibility - remove tracker component if it exists
+        if (HasComp<BloodModificationTrackerComponent>(uid))
+            RemCompDeferred<BloodModificationTrackerComponent>(uid);
     }
 
     private void OnComponentInit(Entity<BloodstreamComponent> entity, ref ComponentInit args)
@@ -456,6 +532,12 @@ public sealed class BloodstreamSystem : EntitySystem
             return;
         }
 
+        // Store the original blood reagent if not already stored
+        if (component.OriginalBloodReagent == null)
+        {
+            component.OriginalBloodReagent = component.BloodReagent;
+        }
+
         if (!_solutionContainerSystem.ResolveSolution(uid, component.BloodSolutionName, ref component.BloodSolution, out var bloodSolution))
         {
             component.BloodReagent = reagent;
@@ -501,5 +583,18 @@ public sealed class BloodstreamSystem : EntitySystem
         bloodData.Add(dnaData);
 
         return bloodData;
+    }
+
+    /// <summary>
+    /// Clears the original blood reagent stored in the bloodstream component.
+    /// Used when blood has been restored to its original state.
+    /// </summary>
+    public void ClearOriginalBloodReagent(EntityUid uid, BloodstreamComponent? bloodstream = null)
+    {
+        if (!Resolve(uid, ref bloodstream))
+            return;
+
+        bloodstream.OriginalBloodReagent = null;
+        // No need to dirty - BloodstreamComponent is server-only and not networked
     }
 }

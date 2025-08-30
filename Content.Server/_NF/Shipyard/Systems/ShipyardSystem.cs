@@ -10,7 +10,9 @@ using Robust.Server.GameObjects;
 using Robust.Shared.Map;
 using Content.Shared._NF.CCVar;
 using Robust.Shared.Configuration;
+using Robust.Shared.Asynchronous;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using Content.Shared._NF.Shipyard.Events;
@@ -18,17 +20,24 @@ using Content.Shared.Mobs.Components;
 using Robust.Shared.Containers;
 using Content.Server._NF.Station.Components;
 using Robust.Shared.EntitySerialization.Systems;
+using Robust.Shared.EntitySerialization;
 using Robust.Shared.Utility;
 using Content.Server.Shuttles.Save;
 using Robust.Shared.GameObjects;
 using Robust.Shared.IoC;
+using Robust.Shared.Map.Events;
 using Robust.Shared.Network;
 using Robust.Shared.Player;
 using System;
-using Robust.Shared.Log; // ADDED: For Logger
-
-// using Content.Shared._NF.Shipyard.Systems; // REMOVED: Not needed, SharedShipyardSystem is in Content.Shared._NF.Shipyard
+using Robust.Shared.Log;
+using Robust.Shared.ContentPack;
 using Content.Shared.Shuttles.Save; // For RequestLoadShipMessage, ShipConvertedToSecureFormatMessage
+using Robust.Shared.Serialization.Markdown; // For MappingDataNode
+using Robust.Shared.Serialization.Markdown.Mapping; // For MappingDataNode
+using Robust.Shared.Serialization.Manager; // For DataNodeParser
+using System.Collections.Generic; // For HashSet
+using Robust.Shared.Maths; // For Angle and Matrix3Helpers
+using System.Numerics; // For Matrix3x2
 using Content.Shared.Access.Components; // For IdCardComponent
 using Robust.Shared.Map.Components; // For MapGridComponent
 using Content.Server._NF.StationEvents.Components; // For LinkedLifecycleGridParentComponent
@@ -46,6 +55,14 @@ using Content.Shared.Database; // For LogType
 
 namespace Content.Server._NF.Shipyard.Systems;
 
+/// <summary>
+/// Temporary component to mark entities that should be anchored after grid loading is complete
+/// </summary>
+[RegisterComponent]
+public sealed partial class PendingAnchorComponent : Component
+{
+}
+
 public sealed partial class ShipyardSystem : SharedShipyardSystem
 {
     [Dependency] private readonly IConfigurationManager _configManager = default!;
@@ -60,6 +77,9 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     [Dependency] private readonly IEntityManager _entityManager = default!;
     [Dependency] private readonly IEntitySystemManager _entitySystemManager = default!;
     [Dependency] private readonly IServerNetManager _netManager = default!; // Ensure this is present
+    [Dependency] private readonly ITaskManager _taskManager = default!;
+    [Dependency] private readonly IResourceManager _resources = default!;
+    [Dependency] private readonly IDependencyCollection _dependency = default!; // For EntityDeserializer
 
     public MapId? ShipyardMap { get; private set; }
     private float _shuttleIndex;
@@ -67,8 +87,6 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     private ISawmill _sawmill = default!;
     private bool _enabled;
     private float _baseSaleRate;
-    private readonly HashSet<string> _loadedShipIds = new();
-    private readonly HashSet<NetUserId> _currentlyLoading = new();
 
     // The type of error from the attempted sale of a ship.
     public enum ShipyardSaleError
@@ -97,458 +115,17 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         _configManager.OnValueChanged(NFCCVars.Shipyard, SetShipyardEnabled); // NOTE: run immediately set to false, see comment above
 
         _configManager.OnValueChanged(NFCCVars.ShipyardSellRate, SetShipyardSellRate, true);
-    _sawmill = Logger.GetSawmill("shipyard");
-    SubscribeNetworkEvent<RequestLoadShipMessage>(HandleLoadShipRequest);
+        _sawmill = Logger.GetSawmill("shipyard");
 
-    SubscribeLocalEvent<ShipyardConsoleComponent, ComponentStartup>(OnShipyardStartup);
-    SubscribeLocalEvent<ShipyardConsoleComponent, BoundUIOpenedEvent>(OnConsoleUIOpened);
-    SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleSellMessage>(OnSellMessage);
-    SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleSaveMessage>(OnSaveMessage);
-    SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsolePurchaseMessage>(OnPurchaseMessage);
-    SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleLoadMessage>(OnLoadMessage);
-    SubscribeLocalEvent<ShipyardConsoleComponent, EntInsertedIntoContainerMessage>(OnItemSlotChanged);
-    SubscribeLocalEvent<ShipyardConsoleComponent, EntRemovedFromContainerMessage>(OnItemSlotChanged);
-    SubscribeLocalEvent<RoundRestartCleanupEvent>(OnRoundRestart);
-    SubscribeLocalEvent<StationDeedSpawnerComponent, MapInitEvent>(OnInitDeedSpawner);
-
-    }
-
-    private void LoadShipOnConsole(string yamlData, ICommonSession playerSession, EntityUid consoleUid, EntityUid idCardUid)
-    {
-        try
-        {
-            // Prevent loading while already loading
-            if (_currentlyLoading.Contains(playerSession.UserId))
-            {
-                _sawmill.Warning($"Player {playerSession.Name} attempted to load ship while already loading");
-                return;
-            }
-
-            // Add to loading set
-            _currentlyLoading.Add(playerSession.UserId);
-
-            var shipSerializationSystem = _entityManager.System<ShipSerializationSystem>();
-            ShipGridData shipGridData;
-            try
-            {
-                shipGridData = shipSerializationSystem.DeserializeShipGridDataFromYaml(yamlData, playerSession.UserId, out var wasLegacyConverted);
-            }
-            catch (Exception ex)
-            {
-                _sawmill.Error($"Failed to deserialize ship data for {playerSession.Name}: {ex.Message}");
-                _currentlyLoading.Remove(playerSession.UserId);
-                return;
-            }
-
-            // Validate console transform
-            if (!TryComp<TransformComponent>(consoleUid, out var consoleXform) || consoleXform.GridUid == null)
-            {
-                _sawmill.Error($"Shipyard console transform invalid for ship loading.");
-                _currentlyLoading.Remove(playerSession.UserId);
-                return;
-            }
-
-            // Setup shipyard and reconstruct ship
-            SetupShipyardIfNeeded();
-            if (ShipyardMap == null)
-            {
-                _sawmill.Error($"Shipyard map not available for ship loading.");
-                _currentlyLoading.Remove(playerSession.UserId);
-                return;
-            }
-
-            var newShipGridUid = shipSerializationSystem.ReconstructShipOnMap(shipGridData, ShipyardMap.Value, new Vector2(500f + _shuttleIndex, 1f));
-
-            _sawmill.Info($"SHIP LOADED: {shipGridData.Metadata.ShipName} by {playerSession.Name} on console {consoleUid}");
-
-            // Update shuttle index for spacing
-            if (TryComp<MapGridComponent>(newShipGridUid, out var gridComp))
-            {
-                _shuttleIndex += gridComp.LocalAABB.Width + ShuttleSpawnBuffer;
-            }
-
-            // Ensure ship has required components
-            if (!HasComp<ShuttleComponent>(newShipGridUid))
-            {
-                var shuttleComp = EnsureComp<ShuttleComponent>(newShipGridUid);
-            }
-
-            var finalShipName = string.IsNullOrWhiteSpace(shipGridData.Metadata.ShipName) ? "Unknown Ship" : shipGridData.Metadata.ShipName;
-
-            // Try to dock the ship
-            if (TryComp<ShuttleComponent>(newShipGridUid, out var shuttleComponent))
-            {
-                var targetGrid = consoleXform.GridUid.Value;
-                _shuttle.TryFTLDock(newShipGridUid, shuttleComponent, targetGrid);
-            }
-
-            // Add deed to the SPECIFIC ID card in the SPECIFIC console
-            var deedComponent = EnsureComp<ShuttleDeedComponent>(idCardUid);
-            deedComponent.ShuttleUid = GetNetEntity(newShipGridUid);
-            TryParseShuttleName(deedComponent, finalShipName);
-            deedComponent.ShuttleOwner = playerSession.Name;
-            deedComponent.PurchasedWithVoucher = true;
-            _sawmill.Info($"Added deed to ID card {idCardUid} in console {consoleUid}");
-
-            // Also add deed to the ship itself
-            var shipDeedComponent = EnsureComp<ShuttleDeedComponent>(newShipGridUid);
-            shipDeedComponent.ShuttleUid = GetNetEntity(newShipGridUid);
-            TryParseShuttleName(shipDeedComponent, finalShipName);
-            shipDeedComponent.ShuttleOwner = playerSession.Name;
-            shipDeedComponent.PurchasedWithVoucher = true;
-
-            // Send radio announcement
-            if (TryComp<ShipyardConsoleComponent>(consoleUid, out var consoleComponent))
-            {
-                var playerEntity = playerSession.AttachedEntity ?? EntityUid.Invalid;
-                SendLoadMessage(consoleUid, playerEntity, finalShipName, consoleComponent.ShipyardChannel);
-                if (consoleComponent.SecretShipyardChannel is { } secretChannel)
-                    SendLoadMessage(consoleUid, playerEntity, finalShipName, secretChannel, secret: true);
-            }
-
-            // Remove from loading set
-            _currentlyLoading.Remove(playerSession.UserId);
-        }
-        catch (Exception e)
-        {
-            _sawmill.Error($"An unexpected error occurred during ship loading for {playerSession.Name}: {e.Message}");
-            _currentlyLoading.Remove(playerSession.UserId);
-        }
-    }
-
-    private void HandleLoadShipRequest(RequestLoadShipMessage message, EntitySessionEventArgs args)
-    {
-        var playerSession = args.SenderSession;
-        if (playerSession == null)
-            return;
-
-        // Prevent loading while already loading
-        if (_currentlyLoading.Contains(playerSession.UserId))
-        {
-            _sawmill.Warning($"Player {playerSession.Name} attempted to load ship while already loading");
-            return;
-        }
-        _currentlyLoading.Add(playerSession.UserId);
-
-        _sawmill.Info($"SHIP LOAD REQUEST: Player {playerSession.Name} ({playerSession.UserId}) attempting to load ship");
-        var shipSerializationSystem = _entitySystemManager.GetEntitySystem<ShipSerializationSystem>();
-
-        try
-        {
-            // Attempting to deserialize YAML
-            var shipGridData = shipSerializationSystem.DeserializeShipGridDataFromYaml(message.YamlData, playerSession.UserId, out bool wasLegacyConverted);
-
-            // Duplicate ship detection using original grid ID
-            // Checking for duplicate ship
-            if (_loadedShipIds.Contains(shipGridData.Metadata.OriginalGridId))
-            {
-                _sawmill.Warning($"SECURITY: Duplicate ship load attempt - ID {shipGridData.Metadata.OriginalGridId} by {playerSession.Name}");
-
-                // Show in-character message for duplicate ship loading
-                var playerEntity = playerSession.AttachedEntity;
-                if (playerEntity.HasValue)
-                {
-                    _popup.PopupEntity("This ship has already been loaded this round.",
-                                     playerEntity.Value, playerEntity.Value, PopupType.LargeCaution);
-                }
-                return;
-            }
-
-            // Find the shipyard console that the requesting player is currently using
-            var consoles = EntityQueryEnumerator<ShipyardConsoleComponent>();
-            EntityUid? targetConsole = null;
-            EntityUid? idCardInConsole = null;
-
-            // First, try to find a console the player is actively using (has UI open)
-            while (consoles.MoveNext(out var consoleUid, out var console))
-            {
-                // Check if this console has an ID card inserted
-                if (console.TargetIdSlot.ContainerSlot?.ContainedEntity is { Valid: true } targetId &&
-                    HasComp<IdCardComponent>(targetId))
-                {
-                    // Check if this player has the console's UI open
-                    // Commented out due to API changes - using console-specific approach instead
-                    /*
-                    if (TryComp<UserInterfaceComponent>(consoleUid, out var uiComponent))
-                    {
-                        foreach (var ui in uiComponent.Interfaces.Values)
-                        {
-                            if (ui.SubscribedSessions.Contains(playerSession))
-                            {
-                                // Check if ID card already has a deed
-                                if (HasComp<ShuttleDeedComponent>(targetId))
-                                {
-                                    _sawmill.Warning($"Player {playerSession.Name} attempted to load ship on card {targetId} that already has a deed");
-                                    return;
-                                }
-
-                                targetConsole = consoleUid;
-                                idCardInConsole = targetId;
-                                _sawmill.Info($"Found console {consoleUid} with active UI for player {playerSession.Name}");
-                                break;
-                            }
-                        }
-                    }
-                    */
-
-                    // Simplified fallback - just use the first available console with ID card
-                    if (!HasComp<ShuttleDeedComponent>(targetId))
-                    {
-                        targetConsole = consoleUid;
-                        idCardInConsole = targetId;
-                        _sawmill.Info($"Using console {consoleUid} for player {playerSession.Name}");
-                        break;
-                    }
-
-                    if (targetConsole.HasValue) break;
-                }
-            }
-
-            // Fallback: if no console with active UI found, use any console with ID card (old behavior)
-            if (!targetConsole.HasValue)
-            {
-                consoles = EntityQueryEnumerator<ShipyardConsoleComponent>();
-                while (consoles.MoveNext(out var consoleUid, out var console))
-                {
-                    if (console.TargetIdSlot.ContainerSlot?.ContainedEntity is { Valid: true } targetId &&
-                        HasComp<IdCardComponent>(targetId))
-                    {
-                        // Check if ID card already has a deed
-                        if (HasComp<ShuttleDeedComponent>(targetId))
-                        {
-                            _sawmill.Warning($"Player {playerSession.Name} attempted to load ship on card {targetId} that already has a deed (fallback)");
-                            continue; // Try next console instead of returning
-                        }
-
-                        targetConsole = consoleUid;
-                        idCardInConsole = targetId;
-                        _sawmill.Warning($"Using fallback console {consoleUid} for player {playerSession.Name} - consider using console UI for ship loading");
-                        break;
-                    }
-                }
-            }
-
-            if (!targetConsole.HasValue || !idCardInConsole.HasValue)
-            {
-                _sawmill.Warning($"SECURITY: Player {playerSession.Name} attempted ship load without valid ID card in console");
-                return;
-            }
-
-            if (!TryComp<TransformComponent>(targetConsole.Value, out var consoleXform) || consoleXform.GridUid == null)
-            {
-                _sawmill.Error($"Shipyard console transform invalid for ship loading.");
-                return;
-            }
-
-            // Reconstruct ship on shipyard map (similar to TryAddShuttle behavior)
-            SetupShipyardIfNeeded();
-            if (ShipyardMap == null)
-            {
-                _sawmill.Error($"Shipyard map not available for ship loading.");
-                return;
-            }
-
-            var newShipGridUid = shipSerializationSystem.ReconstructShipOnMap(shipGridData, ShipyardMap.Value, new Vector2(500f + _shuttleIndex, 1f));
-            // Track this ship as loaded to prevent duplicate loading
-            _loadedShipIds.Add(shipGridData.Metadata.OriginalGridId);
-
-            _sawmill.Info($"SHIP LOADED: {shipGridData.Metadata.ShipName} by {playerSession.Name} ({playerSession.UserId})");
-
-            // Update shuttle index for spacing
-            if (TryComp<MapGridComponent>(newShipGridUid, out var gridComp))
-            {
-                _shuttleIndex += gridComp.LocalAABB.Width + ShuttleSpawnBuffer;
-            }
-
-            // Ensure the loaded ship has a ShuttleComponent (required for docking and IFF)
-            if (!HasComp<ShuttleComponent>(newShipGridUid))
-            {
-                var shuttleComp = EnsureComp<ShuttleComponent>(newShipGridUid);
-                // Added ShuttleComponent
-            }
-
-            // Add IFFComponent to make it show up properly on radar as a friendly player ship
-            if (!HasComp<IFFComponent>(newShipGridUid))
-            {
-                var iffComp = EnsureComp<IFFComponent>(newShipGridUid);
-                _shuttle.AddIFFFlag(newShipGridUid, IFFFlags.IsPlayerShuttle);
-                _shuttle.SetIFFColor(newShipGridUid, IFFComponent.IFFColor);
-                // Added IFFComponent
-            }
-
-            var shipName = shipGridData.Metadata.ShipName;
-            string finalShipName = shipName;
-
-            // Set up station for the loaded ship exactly like purchased ships
-            EntityUid? shuttleStation = null;
-            if (_prototypeManager.TryIndex<GameMapPrototype>(shipName, out var stationProto))
-            {
-                List<EntityUid> gridUids = new()
-                {
-                    newShipGridUid
-                };
-                shuttleStation = _station.InitializeNewStation(stationProto.Stations[shipName], gridUids);
-                finalShipName = Name(shuttleStation.Value); // Use station name with prefix like purchased ships
-                // Created station from prototype
-
-                var vesselInfo = EnsureComp<ExtraShuttleInformationComponent>(shuttleStation.Value);
-                vesselInfo.Vessel = shipName;
-            }
-            else
-            {
-                // No station prototype found
-            }
-
-            // Dock the loaded ship to the console's grid (similar to purchase behavior)
-            if (TryComp<ShuttleComponent>(newShipGridUid, out var shuttleComponent))
-            {
-                var targetGrid = consoleXform.GridUid.Value;
-                _shuttle.TryFTLDock(newShipGridUid, shuttleComponent, targetGrid);
-                // Attempted to dock ship
-            }
-
-            // Add deed to the ID card in the console - mark as loaded to prevent exploits
-            var deedComponent = EnsureComp<ShuttleDeedComponent>(idCardInConsole.Value);
-            deedComponent.ShuttleUid = GetNetEntity(newShipGridUid);
-            TryParseShuttleName(deedComponent, finalShipName);
-            deedComponent.ShuttleOwner = playerSession.Name;
-            deedComponent.PurchasedWithVoucher = true; // Mark as loaded
-            _sawmill.Info($"Added deed to ID card in console {idCardInConsole.Value}");
-
-            // Also add deed to the ship itself (like purchased ships) but mark as loaded (not purchasable)
-            var shipDeedComponent = EnsureComp<ShuttleDeedComponent>(newShipGridUid);
-            shipDeedComponent.ShuttleUid = GetNetEntity(newShipGridUid);
-            TryParseShuttleName(shipDeedComponent, finalShipName);
-            shipDeedComponent.ShuttleOwner = playerSession.Name;
-            shipDeedComponent.PurchasedWithVoucher = true; // Mark as loaded to prevent sale
-
-            // Station information already set up above during station creation
-
-            // Send radio announcement like purchased ships do
-            if (TryComp<ShipyardConsoleComponent>(targetConsole.Value, out var consoleComponent))
-            {
-                var playerEntity = playerSession.AttachedEntity ?? EntityUid.Invalid;
-                SendLoadMessage(targetConsole.Value, playerEntity, finalShipName, consoleComponent.ShipyardChannel);
-                if (consoleComponent.SecretShipyardChannel is { } secretChannel)
-                    SendLoadMessage(targetConsole.Value, playerEntity, finalShipName, secretChannel, secret: true);
-                // Sent radio announcements
-            }
-
-            // Play success sound like purchase confirmation
-            if (TryComp<ShipyardConsoleComponent>(targetConsole.Value, out var loadConsoleComponent))
-            {
-                var playerEntity = playerSession.AttachedEntity ?? EntityUid.Invalid;
-                if (playerEntity != EntityUid.Invalid)
-                {
-                    // Use the same confirm sound as purchases - _audio is in Consoles partial class
-                    _audio.PlayEntity(loadConsoleComponent.ConfirmSound, playerEntity, targetConsole.Value);
-                }
-            }
-
-            // Admin log for ship loading
-            _adminLogger.Add(LogType.ShipYardUsage, LogImpact.Medium, $"{playerSession.Name} loaded ship {finalShipName} (Original ID: {shipGridData.Metadata.OriginalGridId}) via {ToPrettyString(targetConsole.Value)}");
-
-            // Handle legacy ship conversion - force update the file to new secure format
-            if (wasLegacyConverted)
-            {
-                _sawmill.Info($"SECURITY: Converting legacy SHA ship to secure format for {playerSession.Name}");
-
-                var convertedYaml = shipSerializationSystem.GetConvertedLegacyShipYaml(shipGridData, playerSession.Name, message.YamlData);
-                if (!string.IsNullOrEmpty(convertedYaml))
-                {
-                    // Send the converted YAML back to client to overwrite their file
-                    var conversionMessage = new ShipConvertedToSecureFormatMessage
-                    {
-                        ConvertedYamlData = convertedYaml,
-                        ShipName = shipGridData.Metadata.ShipName
-                    };
-
-                    RaiseNetworkEvent(conversionMessage, playerSession);
-                    // Sent converted ship file
-
-                    // Admin log for security audit trail
-                    _adminLogger.Add(LogType.ShipYardUsage, LogImpact.High, $"Legacy SHA ship '{finalShipName}' automatically converted to secure format for player {playerSession.Name}");
-                }
-                else
-                {
-                    _sawmill.Error($"Failed to generate converted YAML for legacy ship - player {playerSession.Name} should manually re-save their ship");
-                }
-            }
-
-            // Ship loading completed
-        }
-        catch (InvalidOperationException e)
-        {
-            _sawmill.Error($"Ship load failed for {playerSession.Name}: {e.Message}");
-
-            // Show clear message for any InvalidOperationException
-            var playerEntity = playerSession.AttachedEntity;
-            if (playerEntity.HasValue)
-            {
-                _popup.PopupEntity("Ship loading failed due to data validation error.",
-                                 playerEntity.Value, playerEntity.Value, PopupType.LargeCaution);
-                {
-                    _popup.PopupEntity($"Ship loading failed: {e.Message}",
-                                     playerEntity.Value, playerEntity.Value, PopupType.LargeCaution);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            _sawmill.Error($"An unexpected error occurred during ship loading for {playerSession.Name}: {e.Message}");
-
-            // Try to extract ship name from YAML for logging (basic parsing)
-            var shipDetails = "Unknown Ship";
-            try
-            {
-                if (message.YamlData.Contains("shipName:"))
-                {
-                    var lines = message.YamlData.Split('\n');
-                    var shipNameLine = lines.FirstOrDefault(l => l.Trim().StartsWith("shipName:"));
-                    if (shipNameLine != null)
-                    {
-                        var shipName = shipNameLine.Split(':')[1]?.Trim() ?? "Unknown";
-                        shipDetails = $"'{shipName}'";
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore parsing errors, use default
-            }
-
-            // Show player feedback for any ship loading failure
-            var playerEntity = playerSession.AttachedEntity;
-            if (playerEntity.HasValue)
-            {
-                if (e.Message.Contains("Alias") && e.Message.Contains("anchor"))
-                {
-                    // YAML corruption - potential tampering
-                    _popup.PopupEntity("Ship data appears corrupted or tampered with. Loading failed.",
-                                     playerEntity.Value, playerEntity.Value, PopupType.LargeCaution);
-
-                    // Play warning sound
-                    _audio.PlayPvs("/Audio/Machines/buzz_sigh.ogg", playerEntity.Value);
-
-                    // Log potential tampering and send admin alert
-                    _adminLogger.Add(LogType.ShipYardUsage, LogImpact.Medium,
-                        $"SHIP CORRUPTION: Player {playerSession.Name} ({playerSession.UserId}) attempted to load corrupted/tampered ship data for ship {shipDetails} - YAML parsing failed: {e.Message}");
-
-                    // Send alert to online admins
-                    _chatManager.SendAdminAlert($"SHIP CORRUPTION: {playerSession.Name} attempted to load ship {shipDetails} with corrupted/tampered YAML data");
-                }
-                else
-                {
-                    _popup.PopupEntity($"Ship loading failed: {e.Message}",
-                                     playerEntity.Value, playerEntity.Value, PopupType.Large);
-                }
-            }
-        }
-        finally
-        {
-            // Always remove player from loading set when done (success or failure)
-            _currentlyLoading.Remove(playerSession.UserId);
-        }
+        SubscribeLocalEvent<ShipyardConsoleComponent, ComponentStartup>(OnShipyardStartup);
+        SubscribeLocalEvent<ShipyardConsoleComponent, BoundUIOpenedEvent>(OnConsoleUIOpened);
+        SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleSellMessage>(OnSellMessage);
+        SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsolePurchaseMessage>(OnPurchaseMessage);
+        SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleLoadMessage>(OnLoadMessage);
+        SubscribeLocalEvent<ShipyardConsoleComponent, EntInsertedIntoContainerMessage>(OnItemSlotChanged);
+        SubscribeLocalEvent<ShipyardConsoleComponent, EntRemovedFromContainerMessage>(OnItemSlotChanged);
+        SubscribeLocalEvent<RoundRestartCleanupEvent>(OnRoundRestart);
+        SubscribeLocalEvent<StationDeedSpawnerComponent, MapInitEvent>(OnInitDeedSpawner);
     }
 
     public override void Shutdown()
@@ -620,6 +197,33 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     }
 
     /// <summary>
+    /// Loads a shuttle from a file and docks it to the grid the console is on, like ship purchases.
+    /// This is used for loading saved ships.
+    /// </summary>
+    /// <param name="consoleUid">The entity of the shipyard console to dock to its grid</param>
+    /// <param name="shuttlePath">The path to the shuttle file to load. Must be a grid file!</param>
+    /// <param name="shuttleEntityUid">The EntityUid of the shuttle that was loaded</param>
+    public bool TryPurchaseShuttleFromFile(EntityUid consoleUid, ResPath shuttlePath, [NotNullWhen(true)] out EntityUid? shuttleEntityUid)
+    {
+        // Get the grid the console is on
+        if (!TryComp<TransformComponent>(consoleUid, out var consoleXform)
+            || consoleXform.GridUid == null
+            || !TryAddShuttle(shuttlePath, out var shuttleGrid)
+            || !TryComp<ShuttleComponent>(shuttleGrid, out var shuttleComponent))
+        {
+            shuttleEntityUid = null;
+            return false;
+        }
+
+        var targetGrid = consoleXform.GridUid.Value;
+
+        _sawmill.Info($"Shuttle loaded from file {shuttlePath} at {ToPrettyString(consoleUid)}");
+        _shuttle.TryFTLDock(shuttleGrid.Value, shuttleComponent, targetGrid);
+        shuttleEntityUid = shuttleGrid;
+        return true;
+    }
+
+    /// <summary>
     /// Loads a shuttle into the ShipyardMap from a file path
     /// </summary>
     /// <param name="shuttlePath">The path to the grid file to load. Must be a grid file!</param>
@@ -641,6 +245,324 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
         shuttleGrid = grid.Value.Owner;
         return true;
+    }
+
+    /// <summary>
+    /// Loads a ship directly from YAML data, following the same pattern as ship purchases
+    /// </summary>
+    /// <param name="consoleUid">The entity of the shipyard console to dock to its grid</param>
+    /// <param name="yamlData">The YAML data of the ship to load</param>
+    /// <param name="shuttleEntityUid">The EntityUid of the shuttle that was loaded</param>
+    public bool TryLoadShipFromYaml(EntityUid consoleUid, string yamlData, [NotNullWhen(true)] out EntityUid? shuttleEntityUid)
+    {
+        shuttleEntityUid = null;
+
+        // Get the grid the console is on
+        if (!TryComp<TransformComponent>(consoleUid, out var consoleXform) || consoleXform.GridUid == null)
+        {
+            return false;
+        }
+
+        var targetGrid = consoleXform.GridUid.Value;
+
+        try
+        {
+            // Setup shipyard
+            SetupShipyardIfNeeded();
+            if (ShipyardMap == null)
+                return false;
+
+            // Load ship directly from YAML data (bypassing file system)
+            if (!TryLoadGridFromYamlData(yamlData, ShipyardMap.Value, new Vector2(500f + _shuttleIndex, 1f), out var grid))
+            {
+                _sawmill.Error($"Unable to load ship from YAML data");
+                return false;
+            }
+
+            var shuttleGrid = grid.Value.Owner;
+
+            if (!TryComp<ShuttleComponent>(shuttleGrid, out var shuttleComponent))
+            {
+                _sawmill.Error("Loaded entity is not a shuttle");
+                return false;
+            }
+
+            // Update shuttle index for spacing
+            _shuttleIndex += grid.Value.Comp.LocalAABB.Width + ShuttleSpawnBuffer;
+
+            _sawmill.Info($"Ship loaded from YAML data at {ToPrettyString(consoleUid)}");
+            _shuttle.TryFTLDock(shuttleGrid, shuttleComponent, targetGrid);
+            shuttleEntityUid = shuttleGrid;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _sawmill.Error($"Exception while loading ship from YAML: {ex}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Loads a grid directly from YAML string data, similar to MapLoaderSystem.TryLoadGrid but without file system dependency
+    /// </summary>
+    private bool TryLoadGridFromYamlData(string yamlData, MapId map, Vector2 offset, [NotNullWhen(true)] out Entity<MapGridComponent>? grid)
+    {
+        grid = null;
+
+        try
+        {
+            // Parse YAML data directly (same approach as MapLoaderSystem.TryReadFile)
+            using var textReader = new StringReader(yamlData);
+            var documents = DataNodeParser.ParseYamlStream(textReader).ToArray();
+
+            switch (documents.Length)
+            {
+                case < 1:
+                    _sawmill.Error("YAML data has no documents.");
+                    return false;
+                case > 1:
+                    _sawmill.Error("YAML data has too many documents. Ship files should contain exactly one.");
+                    return false;
+            }
+
+            var data = (MappingDataNode)documents[0].Root;
+
+            // Create load options (same as MapLoaderSystem.TryLoadGrid)
+            var opts = new MapLoadOptions
+            {
+                MergeMap = map,
+                Offset = offset,
+                Rotation = Angle.Zero,
+                DeserializationOptions = DeserializationOptions.Default,
+                ExpectedCategory = FileCategory.Grid
+            };
+
+            // Process data with EntityDeserializer (same as MapLoaderSystem.TryLoadGeneric)
+            var ev = new BeforeEntityReadEvent();
+            RaiseLocalEvent(ev);
+
+            opts.DeserializationOptions.AssignMapids = opts.ForceMapId == null;
+
+            if (opts.MergeMap is { } targetId && !_map.MapExists(targetId))
+                throw new Exception($"Target map {targetId} does not exist");
+
+            var deserializer = new EntityDeserializer(
+                _dependency,
+                data,
+                opts.DeserializationOptions,
+                ev.RenamedPrototypes,
+                ev.DeletedPrototypes);
+
+            if (!deserializer.TryProcessData())
+            {
+                _sawmill.Error("Failed to process YAML entity data");
+                return false;
+            }
+
+            deserializer.CreateEntities();
+
+            if (opts.ExpectedCategory is { } exp && exp != deserializer.Result.Category)
+            {
+                _sawmill.Error($"YAML data does not contain the expected data. Expected {exp} but got {deserializer.Result.Category}");
+                _mapLoader.Delete(deserializer.Result);
+                return false;
+            }
+
+            // Apply transformations and start entities (same as MapLoaderSystem)
+            var merged = new HashSet<EntityUid>();
+            MergeMaps(deserializer, opts, merged);
+
+            if (!SetMapId(deserializer, opts))
+            {
+                _mapLoader.Delete(deserializer.Result);
+                return false;
+            }
+
+            ApplyTransform(deserializer, opts);
+            deserializer.StartEntities();
+
+            if (opts.MergeMap is { } mergeMap)
+                MapInitalizeMerged(merged, mergeMap);
+
+            // Process deferred anchoring after all entities are started and physics is stable
+            ProcessPendingAnchors(merged);
+
+            // Check for exactly one grid (same as MapLoaderSystem.TryLoadGrid)
+            if (deserializer.Result.Grids.Count == 1)
+            {
+                grid = deserializer.Result.Grids.Single();
+                return true;
+            }
+
+            _mapLoader.Delete(deserializer.Result);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _sawmill.Error($"Exception while loading grid from YAML data: {ex}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Helper methods for our custom YAML loading - based on MapLoaderSystem implementation
+    /// </summary>
+    private void MergeMaps(EntityDeserializer deserializer, MapLoadOptions opts, HashSet<EntityUid> merged)
+    {
+        if (opts.MergeMap is not {} targetId)
+            return;
+
+        if (!_map.TryGetMap(targetId, out var targetUid))
+            throw new Exception($"Target map {targetId} does not exist");
+
+        deserializer.Result.Category = FileCategory.Unknown;
+        var rotation = opts.Rotation;
+        var matrix = Matrix3Helpers.CreateTransform(opts.Offset, rotation);
+        var target = new Entity<TransformComponent>(targetUid.Value, Transform(targetUid.Value));
+
+        // Apply transforms to all loaded entities that should be merged
+        foreach (var uid in deserializer.Result.Entities)
+        {
+            if (TryComp<TransformComponent>(uid, out var xform))
+            {
+                if (xform.MapUid == null || HasComp<MapComponent>(uid))
+                {
+                    Merge(merged, uid, target, matrix, rotation);
+                }
+            }
+        }
+    }
+
+    private void Merge(
+        HashSet<EntityUid> merged,
+        EntityUid uid,
+        Entity<TransformComponent> target,
+        in Matrix3x2 matrix,
+        Angle rotation)
+    {
+        merged.Add(uid);
+        var xform = Transform(uid);
+
+        // Store whether the entity was anchored before transformation
+        // We'll use this information later to re-anchor entities after startup
+        var wasAnchored = xform.Anchored;
+
+        // Apply transform matrix (same as RobustToolbox MapLoaderSystem)
+        var angle = xform.LocalRotation + rotation;
+        var pos = System.Numerics.Vector2.Transform(xform.LocalPosition, matrix);
+        var coords = new EntityCoordinates(target.Owner, pos);
+        _transform.SetCoordinates((uid, xform, MetaData(uid)), coords, rotation: angle, newParent: target.Comp);
+
+        // Store anchoring information for later processing
+        if (wasAnchored)
+        {
+            EnsureComp<PendingAnchorComponent>(uid);
+        }
+
+        // Delete any map entities since we're merging
+        if (HasComp<MapComponent>(uid))
+        {
+            QueueDel(uid);
+        }
+    }
+
+    private bool SetMapId(EntityDeserializer deserializer, MapLoadOptions opts)
+    {
+        // Check for any entities with MapComponents that might need MapId assignment
+        foreach (var uid in deserializer.Result.Entities)
+        {
+            if (TryComp<MapComponent>(uid, out var mapComp))
+            {
+                if (opts.ForceMapId != null)
+                {
+                    // Should not happen in our shipyard use case
+                    _sawmill.Error("Unexpected ForceMapId when merging maps");
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private void ApplyTransform(EntityDeserializer deserializer, MapLoadOptions opts)
+    {
+        if (opts.Rotation == Angle.Zero && opts.Offset == Vector2.Zero)
+            return;
+
+        // If merging onto a single map, the transformation was already applied by MergeMaps
+        if (opts.MergeMap != null)
+            return;
+
+        var matrix = Matrix3Helpers.CreateTransform(opts.Offset, opts.Rotation);
+
+        // Apply transforms to all children of loaded maps
+        foreach (var uid in deserializer.Result.Entities)
+        {
+            if (TryComp<TransformComponent>(uid, out var xform))
+            {
+                // Check if this entity is attached to a map
+                if (xform.MapUid != null && HasComp<MapComponent>(xform.MapUid.Value))
+                {
+                    var pos = System.Numerics.Vector2.Transform(xform.LocalPosition, matrix);
+                    _transform.SetLocalPosition(uid, pos);
+                    _transform.SetLocalRotation(uid, xform.LocalRotation + opts.Rotation);
+                }
+            }
+        }
+    }
+
+    private void MapInitalizeMerged(HashSet<EntityUid> merged, MapId targetId)
+    {
+        // Initialize merged entities according to the target map's state
+        if (!_map.TryGetMap(targetId, out var targetUid))
+            throw new Exception($"Target map {targetId} does not exist");
+
+        if (_map.IsInitialized(targetUid.Value))
+        {
+            foreach (var uid in merged)
+            {
+                if (TryComp<MetaDataComponent>(uid, out var metadata))
+                {
+                    EntityManager.RunMapInit(uid, metadata);
+                }
+            }
+        }
+
+        var paused = _map.IsPaused(targetUid.Value);
+        foreach (var uid in merged)
+        {
+            if (TryComp<MetaDataComponent>(uid, out var metadata))
+            {
+                _metaData.SetEntityPaused(uid, paused, metadata);
+            }
+        }
+    }
+
+    private void ProcessPendingAnchors(HashSet<EntityUid> merged)
+    {
+        // Process entities that need to be anchored after grid loading
+        foreach (var uid in merged)
+        {
+            if (!TryComp<PendingAnchorComponent>(uid, out _))
+                continue;
+
+            // Remove the temporary component
+            RemComp<PendingAnchorComponent>(uid);
+
+            // Try to anchor the entity if it's on a valid grid
+            if (TryComp<TransformComponent>(uid, out var xform) && xform.GridUid != null)
+            {
+                try
+                {
+                    _transform.AnchorEntity(uid, xform);
+                }
+                catch (Exception ex)
+                {
+                    // Log but don't fail - some entities might not be anchorable
+                    _sawmill.Warning($"Failed to anchor entity {uid}: {ex.Message}");
+                }
+            }
+        }
     }
 
     /// <summary>

@@ -294,6 +294,18 @@
     {
       "name": "green-inhand-right",
       "directions": 4
+    },
+    {
+      "name": "idgunny"
+    },
+    {
+      "name": "idntlieu"
+    },
+    {
+      "name": "idntso"
+    },
+    {
+      "name": "ntidad"
     }
   ]
 }

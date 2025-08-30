@@ -116,11 +116,29 @@
           - Bread
           - MailCapsule
           - WeaponMeleeStake
+  - type: BallisticAmmoProvider
+    capacity: 10
+    whitelist:
+      tags:
+          - CrossbowBolt
+          - CrossbowBoltBroadhead
+          - CrossbowBoltGlassShard
+          - CrossbowBoltPlasmaGlassShard
+          - CrossbowBoltUraniumGlassShard
+          - CrossbowBoltSyringe
+          - CrossbowBoltPlasteel
+          - CrossbowBoltExplosive
+          - CrossbowBoltEMP
+          - CrossbowBoltIncendiary
+          - CrossbowBoltShrapnel
+          - Plunger
+          - Bread
+          - MailCapsule
+          - WeaponMeleeStake
   - type: ContainerContainer
     containers:
-      projectiles: !type:ContainerSlot
-  - type: ContainerAmmoProvider
-    container: projectiles
+      ballistic-ammo: !type:Container
+        ents: []
   - type: Appearance
   - type: ItemMapper
     spriteLayers:

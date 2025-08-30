@@ -15,6 +15,7 @@
   - ElectricGrillMachineCircuitboard
   - BoozeDispenserMachineCircuitboard
   - SodaDispenserMachineCircuitboard
+  - ImpCoffeeMachineCircuitboard #imp
 
 - type: technology
   id: MiscellaneousItemsOrganization
